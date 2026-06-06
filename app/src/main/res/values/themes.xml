@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.VtopU" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">#101411</item>
+        <item name="android:statusBarColor">#101411</item>
+        <item name="android:windowBackground">#101411</item>
+    </style>
+</resources>
