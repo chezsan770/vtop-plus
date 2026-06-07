@@ -1,6 +1,8 @@
 package com.vtopu.app.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -267,89 +269,138 @@ class VtopRepository {
         const val userAgent = "Mozilla/5.0 (Linux; Android 14) VTOP-U/1.0"
     }
 
-    private fun fetchAcademicData() {
-        val authorizedId = currentAuthorizedId ?: return
-        val csrf = currentCsrf ?: return
+    private suspend fun fetchAcademicData() = coroutineScope {
+        val authorizedId = currentAuthorizedId ?: return@coroutineScope
+        val csrf = currentCsrf ?: return@coroutineScope
 
-        runCatching {
-            val attendanceMenu = postAjax(
-                path = "/vtop/academics/common/StudentAttendance",
-                fields = menuFields(authorizedId, csrf)
-            )
-            val attendanceOptions = VtopParser.parseAttendanceSemesters(attendanceMenu)
-            selectedAttendanceSemesterId = selectedAttendanceSemesterId
-                ?.takeIf { selected -> attendanceOptions.any { it.id == selected } }
-                ?: attendanceOptions.firstOrNull()?.id
-            val attendanceDetail = selectedAttendanceSemesterId?.let { semesterId ->
+        val attendanceMenuDeferred = async {
+            runCatching {
                 postAjax(
-                    path = "/vtop/processViewStudentAttendance",
-                    fields = semesterFields(authorizedId, csrf, semesterId)
+                    path = "/vtop/academics/common/StudentAttendance",
+                    fields = menuFields(authorizedId, csrf)
                 )
-            }.orEmpty()
-            lastAttendanceHtml = attendanceMenu + attendanceDetail
+            }
+        }
+        val timetableMenuDeferred = async {
+            runCatching {
+                postAjax(
+                    path = "/vtop/academics/common/StudentTimeTable",
+                    fields = menuFields(authorizedId, csrf)
+                )
+            }
+        }
+        val marksMenuDeferred = async {
+            runCatching {
+                postAjax(
+                    path = "/vtop/examinations/StudentMarkView",
+                    fields = menuFields(authorizedId, csrf)
+                )
+            }
+        }
+        val gradesMenuDeferred = async {
+            runCatching {
+                postAjax(
+                    path = "/vtop/examinations/examGradeView/StudentGradeView",
+                    fields = menuFields(authorizedId, csrf)
+                )
+            }
+        }
+        val gradeHistoryDeferred = async {
+            runCatching {
+                postAjax(
+                    path = "/vtop/examinations/examGradeView/StudentGradeHistory",
+                    fields = menuFields(authorizedId, csrf)
+                )
+            }
         }
 
-        runCatching {
-            val timetableMenu = postAjax(
-                path = "/vtop/academics/common/StudentTimeTable",
-                fields = menuFields(authorizedId, csrf)
-            )
-            val timetableOptions = VtopParser.parseTimetableSemesters(timetableMenu)
-            selectedTimetableSemesterId = selectedTimetableSemesterId
-                ?.takeIf { selected -> timetableOptions.any { it.id == selected } }
-                ?: timetableOptions.firstOrNull()?.id
-            val timetableDetail = selectedTimetableSemesterId?.let { semesterId ->
-                postAjax(
-                    path = "/vtop/processViewTimeTable",
-                    fields = semesterFields(authorizedId, csrf, semesterId)
-                )
-            }.orEmpty()
-            lastTimetableHtml = timetableMenu + timetableDetail
+        val attendanceMenu = attendanceMenuDeferred.await().getOrNull()
+        val timetableMenu = timetableMenuDeferred.await().getOrNull()
+        val marksMenu = marksMenuDeferred.await().getOrNull()
+        val gradesMenu = gradesMenuDeferred.await().getOrNull()
+
+        val attendanceOptions = attendanceMenu?.let(VtopParser::parseAttendanceSemesters).orEmpty()
+        val timetableOptions = timetableMenu?.let(VtopParser::parseTimetableSemesters).orEmpty()
+        val markOptions = marksMenu?.let(VtopParser::parseGradeSemesters).orEmpty()
+        val gradeOptions = gradesMenu?.let(VtopParser::parseGradeSemesters).orEmpty()
+
+        val nextAttendanceSemesterId = selectedAttendanceSemesterId
+            ?.takeIf { selected -> attendanceOptions.any { it.id == selected } }
+            ?: attendanceOptions.firstOrNull()?.id
+        val nextTimetableSemesterId = selectedTimetableSemesterId
+            ?.takeIf { selected -> timetableOptions.any { it.id == selected } }
+            ?: timetableOptions.firstOrNull()?.id
+        val nextMarksSemesterId = selectedGradeSemesterId
+            ?.takeIf { selected -> markOptions.any { it.id == selected } }
+            ?: nextAttendanceSemesterId?.takeIf { selected -> markOptions.any { it.id == selected } }
+            ?: markOptions.firstOrNull()?.id
+        val nextGradesSemesterId = selectedGradeSemesterId
+            ?.takeIf { selected -> gradeOptions.any { it.id == selected } }
+            ?: nextAttendanceSemesterId?.takeIf { selected -> gradeOptions.any { it.id == selected } }
+            ?: nextMarksSemesterId?.takeIf { selected -> gradeOptions.any { it.id == selected } }
+            ?: gradeOptions.firstOrNull()?.id
+
+        val attendanceDetailDeferred = async {
+            runCatching {
+                nextAttendanceSemesterId?.let { semesterId ->
+                    postAjax(
+                        path = "/vtop/processViewStudentAttendance",
+                        fields = semesterFields(authorizedId, csrf, semesterId)
+                    )
+                }.orEmpty()
+            }
+        }
+        val timetableDetailDeferred = async {
+            runCatching {
+                nextTimetableSemesterId?.let { semesterId ->
+                    postAjax(
+                        path = "/vtop/processViewTimeTable",
+                        fields = semesterFields(authorizedId, csrf, semesterId)
+                    )
+                }.orEmpty()
+            }
+        }
+        val marksDetailDeferred = async {
+            runCatching {
+                nextMarksSemesterId?.let { semesterId ->
+                    postAjax(
+                        path = "/vtop/examinations/doStudentMarkView",
+                        fields = semesterFields(authorizedId, csrf, semesterId)
+                    )
+                }.orEmpty()
+            }
+        }
+        val gradesDetailDeferred = async {
+            runCatching {
+                nextGradesSemesterId?.let { semesterId ->
+                    postAjax(
+                        path = "/vtop/examinations/examGradeView/doStudentGradeView",
+                        fields = semesterFields(authorizedId, csrf, semesterId)
+                    )
+                }.orEmpty()
+            }
         }
 
-        runCatching {
-            val marksMenu = postAjax(
-                path = "/vtop/examinations/StudentMarkView",
-                fields = menuFields(authorizedId, csrf)
-            )
-            val markOptions = VtopParser.parseGradeSemesters(marksMenu)
-            selectedGradeSemesterId = selectedGradeSemesterId
-                ?.takeIf { selected -> markOptions.any { it.id == selected } }
-                ?: selectedAttendanceSemesterId?.takeIf { selected -> markOptions.any { it.id == selected } }
-                    ?: markOptions.firstOrNull()?.id
-            val marksDetail = selectedGradeSemesterId?.let { semesterId ->
-                postAjax(
-                    path = "/vtop/examinations/doStudentMarkView",
-                    fields = semesterFields(authorizedId, csrf, semesterId)
-                )
-            }.orEmpty()
-            lastMarksHtml = marksMenu + marksDetail
+        attendanceMenu?.let { menu ->
+            selectedAttendanceSemesterId = nextAttendanceSemesterId
+            lastAttendanceHtml = menu + attendanceDetailDeferred.await().getOrDefault("")
         }
-
-        runCatching {
-            val gradesMenu = postAjax(
-                path = "/vtop/examinations/examGradeView/StudentGradeView",
-                fields = menuFields(authorizedId, csrf)
-            )
-            val gradeOptions = VtopParser.parseGradeSemesters(gradesMenu)
-            selectedGradeSemesterId = selectedGradeSemesterId
-                ?.takeIf { selected -> gradeOptions.any { it.id == selected } }
-                ?: selectedAttendanceSemesterId?.takeIf { selected -> gradeOptions.any { it.id == selected } }
-                    ?: gradeOptions.firstOrNull()?.id
-            val gradesDetail = selectedGradeSemesterId?.let { semesterId ->
-                postAjax(
-                    path = "/vtop/examinations/examGradeView/doStudentGradeView",
-                    fields = semesterFields(authorizedId, csrf, semesterId)
-                )
-            }.orEmpty()
-            lastGradesHtml = gradesMenu + gradesDetail
+        timetableMenu?.let { menu ->
+            selectedTimetableSemesterId = nextTimetableSemesterId
+            lastTimetableHtml = menu + timetableDetailDeferred.await().getOrDefault("")
         }
-
-        runCatching {
-            lastGradeHistoryHtml = postAjax(
-                path = "/vtop/examinations/examGradeView/StudentGradeHistory",
-                fields = menuFields(authorizedId, csrf)
-            )
+        marksMenu?.let { menu ->
+            if (gradesMenu == null) {
+                selectedGradeSemesterId = nextMarksSemesterId
+            }
+            lastMarksHtml = menu + marksDetailDeferred.await().getOrDefault("")
+        }
+        gradesMenu?.let { menu ->
+            selectedGradeSemesterId = nextGradesSemesterId ?: nextMarksSemesterId
+            lastGradesHtml = menu + gradesDetailDeferred.await().getOrDefault("")
+        }
+        gradeHistoryDeferred.await().getOrNull()?.let { history ->
+            lastGradeHistoryHtml = history
         }
     }
 
@@ -539,21 +590,27 @@ private class MemoryCookieJar : CookieJar {
     private val cookiesByHost = linkedMapOf<String, MutableList<Cookie>>()
 
     fun clear() {
-        cookiesByHost.clear()
+        synchronized(cookiesByHost) {
+            cookiesByHost.clear()
+        }
     }
 
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-        val existing = cookiesByHost.getOrPut(url.host) { mutableListOf() }
-        cookies.forEach { cookie ->
-            existing.removeAll { it.name == cookie.name && it.path == cookie.path }
-            existing.add(cookie)
+        synchronized(cookiesByHost) {
+            val existing = cookiesByHost.getOrPut(url.host) { mutableListOf() }
+            cookies.forEach { cookie ->
+                existing.removeAll { it.name == cookie.name && it.path == cookie.path }
+                existing.add(cookie)
+            }
         }
     }
 
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
         val now = System.currentTimeMillis()
-        return cookiesByHost[url.host]
-            ?.filter { cookie -> cookie.expiresAt > now && cookie.matches(url) }
-            .orEmpty()
+        return synchronized(cookiesByHost) {
+            cookiesByHost[url.host]
+                ?.filter { cookie -> cookie.expiresAt > now && cookie.matches(url) }
+                .orEmpty()
+        }
     }
 }

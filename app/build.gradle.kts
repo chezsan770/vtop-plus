@@ -11,8 +11,8 @@ android {
         applicationId = "com.vtopu.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 23
-        versionName = "3.2"
+        versionCode = 30
+        versionName = "3.9"
     }
 
     buildFeatures {

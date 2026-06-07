@@ -38,9 +38,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -57,7 +55,6 @@ import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -95,9 +92,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -503,18 +502,11 @@ private fun LoginScreen(
                 ThemeToggleButton(darkMode = darkMode, onToggleTheme = onToggleTheme)
             }
             Spacer(modifier = Modifier.height(34.dp))
-            AppMark()
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "VTOP-U",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Black,
-                textAlign = TextAlign.Center
-            )
-            Text(
-                text = "Academic Excellence System",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
+            BrandLogo(
+                modifier = Modifier
+                    .fillMaxWidth(0.94f)
+                    .height(96.dp),
+                color = MaterialTheme.colorScheme.onBackground
             )
         }
 
@@ -658,23 +650,17 @@ private fun SaveCredentialsDialog(
 }
 
 @Composable
-private fun AppMark() {
-    Surface(
-        modifier = Modifier.size(68.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        shadowElevation = 8.dp
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                Icons.Default.School,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(34.dp)
-            )
-        }
-    }
+private fun BrandLogo(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.onBackground
+) {
+    Image(
+        painter = painterResource(id = R.drawable.gamma_logo),
+        contentDescription = "Gamma for VTOP",
+        modifier = modifier,
+        contentScale = ContentScale.Fit,
+        colorFilter = ColorFilter.tint(color)
+    )
 }
 
 @Composable
@@ -765,7 +751,6 @@ private fun DashboardScreen(
     ) {
         item {
             DashboardHeader(
-                title = "VTOP-U",
                 greeting = dashboard.profile.greeting,
                 registrationNumber = registrationNumber,
                 loading = loading,
@@ -1034,33 +1019,69 @@ private fun GradeSummaryCard(courseCount: Int, gpa: String?) {
 @Composable
 private fun GradeCourseCard(course: GradeCourse, marks: CourseMarks?) {
     var expanded by remember(course.code) { mutableStateOf(false) }
-    AcademicCard(modifier = Modifier.animateContentSize()) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Column {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = marks?.assessments?.isNotEmpty() == true) { expanded = !expanded }
+                    .padding(horizontal = 14.dp, vertical = 13.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(course.title, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusChip(text = course.code)
-                        StatusChip(text = course.credits.ifBlank { "Credits" })
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    Text(
+                        text = course.title.ifBlank { course.code },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CourseCodePill(text = course.code)
+                        Text(
+                            text = course.displayCreditsLabel(),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(course.grade, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
-                    course.grandTotal?.let { Text("$it total", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                }
+
+                GradeBadge(grade = course.grade)
             }
-            Text(course.courseType, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (marks != null && marks.assessments.isNotEmpty()) {
-                TextButton(onClick = { expanded = !expanded }) {
-                    Text(if (expanded) "Hide marks" else "View marks")
-                }
-                AnimatedVisibility(expanded) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        marks.assessments.forEach { mark ->
+            AnimatedVisibility(expanded && marks != null && marks.assessments.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp)
+                        .padding(bottom = 13.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = course.courseType.ifBlank { "Marks" },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    marks?.let { courseMarks ->
+                        courseMarks.assessments.forEach { mark ->
                             MarkEntryRow(
                                 title = mark.title,
                                 scored = mark.scoredMark,
@@ -1072,6 +1093,47 @@ private fun GradeCourseCard(course: GradeCourse, marks: CourseMarks?) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CourseCodePill(text: String) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.46f))
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            color = MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Black,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun GradeBadge(grade: String) {
+    val highlighted = grade.equals("S", true) || grade.startsWith("A", ignoreCase = true)
+    Surface(
+        modifier = Modifier.size(width = 52.dp, height = 52.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = if (highlighted) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.34f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        },
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = grade.ifBlank { "--" },
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Black
+            )
         }
     }
 }
@@ -1195,7 +1257,6 @@ private fun TermGradeRow(course: GradeCourse) {
 
 @Composable
 private fun DashboardHeader(
-    title: String,
     greeting: String,
     registrationNumber: String,
     loading: Boolean,
@@ -1210,7 +1271,12 @@ private fun DashboardHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(title, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium)
+            BrandLogo(
+                modifier = Modifier
+                    .width(148.dp)
+                    .height(38.dp),
+                color = MaterialTheme.colorScheme.onBackground
+            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ThemeToggleButton(darkMode = darkMode, onToggleTheme = onToggleTheme)
                 IconButton(onClick = onRefresh, enabled = !loading) {
@@ -1330,22 +1396,32 @@ private fun AttendanceSection(courses: List<AttendanceCourse>) {
     if (courses.isEmpty()) {
         EmptyState("Attendance was not visible on the current VTOP page. Open Full VTOP once after login, then refresh.")
     } else {
-        LazyRow(
-            state = rememberLazyListState(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(
-                items = courses,
-                key = { it.code }
-            ) { course ->
-                AttendanceCourseCard(course = course)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            courses.chunked(2).forEach { rowCourses ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    rowCourses.forEach { course ->
+                        AttendanceCourseCard(
+                            course = course,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (rowCourses.size == 1) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun AttendanceCourseCard(course: AttendanceCourse) {
+private fun AttendanceCourseCard(
+    course: AttendanceCourse,
+    modifier: Modifier = Modifier
+) {
     var animateIn by remember(course.code, course.percentage) { mutableStateOf(false) }
     LaunchedEffect(course.code, course.percentage) {
         animateIn = false
@@ -1359,17 +1435,15 @@ private fun AttendanceCourseCard(course: AttendanceCourse) {
     )
 
     AcademicCard(
-        modifier = Modifier
-            .width(148.dp)
-            .height(154.dp),
-        contentPadding = PaddingValues(12.dp)
+        modifier = modifier.height(176.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
                     progress = { animatedProgress },
                     modifier = Modifier.fillMaxSize(),
@@ -1381,12 +1455,16 @@ private fun AttendanceCourseCard(course: AttendanceCourse) {
             }
             Text(
                 text = course.name,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold
             )
+            Spacer(modifier = Modifier.weight(1f))
             StatusChip(text = course.code)
         }
     }
@@ -1726,6 +1804,17 @@ private fun String.toBitmap() = runCatching {
 
 private fun String.startTime(): String =
     substringBefore("-").trim().ifBlank { this }
+
+private fun GradeCourse.displayCreditsLabel(): String {
+    val numericCredits = Regex("\\d+(?:\\.\\d+)?")
+        .findAll(credits)
+        .map { it.value }
+        .toList()
+    val creditsValue = numericCredits.lastOrNull()
+        ?: credits.takeIf { it.isNotBlank() }
+        ?: return "Credits"
+    return "$creditsValue Credits"
+}
 
 private fun TextStyle.academic(): TextStyle = copy(fontFamily = AcademicFont)
 
