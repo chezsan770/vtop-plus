@@ -14,13 +14,43 @@ data class UserProfile(
     val registrationNumber: String?
 ) {
     val greeting: String
-        get() = if (name.isNullOrBlank()) "Welcome back" else "Hi, ${name.firstName()}"
+        get() = if (name.isNullOrBlank()) "Welcome back" else "Welcome back ${name.firstName()}"
 }
 
 data class AttendanceCourse(
     val code: String,
     val name: String,
     val percentage: Int
+)
+
+data class GradeCourse(
+    val code: String,
+    val title: String,
+    val courseType: String,
+    val credits: String,
+    val grade: String,
+    val grandTotal: String? = null,
+    val examMonth: String? = null,
+    val resultDeclared: String? = null,
+    val distribution: String? = null
+)
+
+data class MarkEntry(
+    val title: String,
+    val maxMark: String,
+    val weightage: String,
+    val status: String,
+    val scoredMark: String,
+    val weightedMark: String
+)
+
+data class CourseMarks(
+    val code: String,
+    val title: String,
+    val faculty: String,
+    val slot: String,
+    val courseType: String,
+    val assessments: List<MarkEntry>
 )
 
 data class SemesterOption(
@@ -59,10 +89,17 @@ data class DashboardSnapshot(
     val attendance: List<AttendanceCourse>,
     val nextClass: NextClass?,
     val timetable: List<TimetableClass> = emptyList(),
+    val grades: List<GradeCourse> = emptyList(),
+    val gradeHistory: List<GradeCourse> = emptyList(),
+    val marks: List<CourseMarks> = emptyList(),
+    val gpa: String? = null,
+    val cgpa: String? = null,
     val attendanceSemesters: List<SemesterOption> = emptyList(),
     val timetableSemesters: List<SemesterOption> = emptyList(),
+    val gradeSemesters: List<SemesterOption> = emptyList(),
     val selectedAttendanceSemester: SemesterOption? = null,
-    val selectedTimetableSemester: SemesterOption? = null
+    val selectedTimetableSemester: SemesterOption? = null,
+    val selectedGradeSemester: SemesterOption? = null
 )
 
 sealed interface LoginResult {
@@ -70,4 +107,18 @@ sealed interface LoginResult {
     data class Failure(val reason: String, val challenge: LoginChallenge? = null) : LoginResult
 }
 
-private fun String.firstName(): String = trim().split(Regex("\\s+")).firstOrNull().orEmpty()
+enum class SessionKeepAliveResult {
+    Active,
+    Expired,
+    Failed
+}
+
+private fun String.firstName(): String =
+    trim()
+        .split(Regex("\\s+"))
+        .firstOrNull()
+        .orEmpty()
+        .lowercase()
+        .replaceFirstChar { character ->
+            if (character.isLowerCase()) character.titlecase() else character.toString()
+        }

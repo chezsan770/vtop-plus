@@ -37,23 +37,33 @@ object VtopParser {
     fun parseDashboard(
         html: String,
         selectedAttendanceSemesterId: String? = null,
-        selectedTimetableSemesterId: String? = null
+        selectedTimetableSemesterId: String? = null,
+        selectedGradeSemesterId: String? = null
     ): DashboardSnapshot {
         val document = Jsoup.parse(html)
         val attendanceSemesters = parseSemesterOptions(document, Purpose.Attendance)
         val timetableSemesters = parseSemesterOptions(document, Purpose.Timetable)
+        val gradeSemesters = parseSemesterOptions(document, Purpose.Grades)
         val selectedAttendanceSemester = chooseSemester(attendanceSemesters, selectedAttendanceSemesterId)
         val selectedTimetableSemester = chooseSemester(timetableSemesters, selectedTimetableSemesterId)
+        val selectedGradeSemester = chooseSemester(gradeSemesters, selectedGradeSemesterId)
 
         return DashboardSnapshot(
             profile = parseProfile(document),
             attendance = parseAttendance(document),
             nextClass = parseNextClass(document),
             timetable = parseTimetable(document),
+            grades = parseGrades(document),
+            gradeHistory = parseGradeHistory(document),
+            marks = parseMarks(document),
+            gpa = parseGpa(document),
+            cgpa = parseCgpa(document),
             attendanceSemesters = attendanceSemesters,
             timetableSemesters = timetableSemesters,
+            gradeSemesters = gradeSemesters,
             selectedAttendanceSemester = selectedAttendanceSemester,
-            selectedTimetableSemester = selectedTimetableSemester
+            selectedTimetableSemester = selectedTimetableSemester,
+            selectedGradeSemester = selectedGradeSemester
         )
     }
 
@@ -62,6 +72,9 @@ object VtopParser {
 
     fun parseTimetableSemesters(html: String): List<SemesterOption> =
         parseSemesterOptions(Jsoup.parse(html), Purpose.Timetable)
+
+    fun parseGradeSemesters(html: String): List<SemesterOption> =
+        parseSemesterOptions(Jsoup.parse(html), Purpose.Grades)
 
     private fun parseSemesterOptions(document: Document, purpose: Purpose): List<SemesterOption> {
         val exactMatches = document.select("select")
@@ -105,7 +118,7 @@ object VtopParser {
 
     private fun parseProfile(document: Document): UserProfile {
         val bodyText = document.body()?.text().orEmpty()
-        val registrationNumber = Regex("\\b\\d{2}[A-Z]{3}\\d{4}\\b")
+        val registrationNumberFromText = Regex("\\b\\d{2}[A-Z]{3}\\d{4}\\b")
             .find(bodyText)
             ?.value
 
@@ -116,11 +129,19 @@ object VtopParser {
             "authorizedIDX"
         ).firstNotNullOfOrNull { id ->
             document.getElementById(id)?.text()?.cleanText()?.takeIf { it.length in 3..80 }
-        } ?: document.findLabelValue("Name")
+        } ?: document.findTableValue("Student Name", "Name")
+            ?: document.findLabelValue("Student Name")
+            ?: document.findLabelValue("Name")
+
+        val registrationNumber = registrationNumberFromText
+            ?: document.findTableValue("Reg.No.", "Reg. No.", "Register Number", "Registration Number")
+            ?: document.findLabelValue("Register Number")
+            ?: document.findLabelValue("Registration Number")
+            ?: document.findLabelValue("Reg.No.")
 
         return UserProfile(
-            name = name?.removePrefix(":")?.cleanText(),
-            registrationNumber = registrationNumber ?: document.findLabelValue("Register Number")
+            name = name?.removePrefix(":")?.cleanText()?.takeIf(::looksLikeStudentName),
+            registrationNumber = registrationNumber
         )
     }
 
@@ -233,6 +254,116 @@ object VtopParser {
         return AttendanceCourse(code = code, name = name, percentage = percentage)
     }
 
+    private fun parseGrades(document: Document): List<GradeCourse> {
+        return document.select("table")
+            .filter { table ->
+                val text = table.text()
+                text.contains("Grand Total", ignoreCase = true) &&
+                    text.contains("Course Code", ignoreCase = true) &&
+                    text.contains("Grade", ignoreCase = true)
+            }
+            .flatMap { table -> table.select("tr").mapNotNull(::parseCurrentGradeRow) }
+            .distinctBy { "${it.code}-${it.title}" }
+    }
+
+    private fun parseGradeHistory(document: Document): List<GradeCourse> {
+        return document.select("table")
+            .filter { table ->
+                val text = table.text()
+                text.contains("Exam Month", ignoreCase = true) &&
+                    text.contains("Result Declared", ignoreCase = true) &&
+                    text.contains("Course Code", ignoreCase = true)
+            }
+            .flatMap { table -> table.select("tr").mapNotNull(::parseHistoryGradeRow) }
+            .distinctBy { "${it.code}-${it.title}-${it.examMonth}-${it.grade}" }
+    }
+
+    private fun parseCurrentGradeRow(row: Element): GradeCourse? {
+        val cells = row.select("td")
+            .map { it.text().cleanText() }
+            .filter { it.isNotBlank() }
+        if (cells.size < 9 || cells.first().toIntOrNull() == null) return null
+        val code = cells.getOrNull(1)?.takeIf { courseCodeRegex.matches(it) } ?: return null
+        val grade = cells.lastOrNull { it.matches(Regex("[A-Z][+\\-]?|P|F|N\\d?", RegexOption.IGNORE_CASE)) }
+            ?: cells.lastOrNull().orEmpty()
+
+        return GradeCourse(
+            code = code,
+            title = cells.getOrNull(2).orEmpty(),
+            courseType = cells.getOrNull(3).orEmpty(),
+            credits = cells.drop(4).take(4).joinToString("-").ifBlank { cells.getOrNull(4).orEmpty() },
+            grade = grade,
+            grandTotal = cells.getOrNull(cells.size - 2)
+        )
+    }
+
+    private fun parseHistoryGradeRow(row: Element): GradeCourse? {
+        val cells = row.select("td")
+            .map { it.text().cleanText() }
+            .filter { it.isNotBlank() }
+        if (cells.size < 8 || cells.first().toIntOrNull() == null) return null
+        val code = cells.getOrNull(1)?.takeIf { courseCodeRegex.matches(it) } ?: return null
+
+        return GradeCourse(
+            code = code,
+            title = cells.getOrNull(2).orEmpty(),
+            courseType = cells.getOrNull(3).orEmpty(),
+            credits = cells.getOrNull(4).orEmpty(),
+            grade = cells.getOrNull(5).orEmpty(),
+            examMonth = cells.getOrNull(6),
+            resultDeclared = cells.getOrNull(7),
+            distribution = cells.getOrNull(8)
+        )
+    }
+
+    private fun parseMarks(document: Document): List<CourseMarks> {
+        val rows = document.select("table tr")
+        val courses = mutableListOf<CourseMarks>()
+        var current: CourseMarksBuilder? = null
+
+        rows.forEach { row ->
+            val cells = row.select("td")
+                .map { it.text().cleanText() }
+                .filter { it.isNotBlank() }
+            if (cells.size >= 9 && cells.first().toIntOrNull() != null && courseCodeRegex.matches(cells[2])) {
+                current?.build()?.let(courses::add)
+                current = CourseMarksBuilder(
+                    code = cells[2],
+                    title = cells[3],
+                    courseType = cells[4],
+                    faculty = cells.getOrNull(6).orEmpty(),
+                    slot = cells.getOrNull(7).orEmpty()
+                )
+            } else if (current != null && cells.size >= 6 && cells.first().toIntOrNull() != null) {
+                current?.assessments?.add(
+                    MarkEntry(
+                        title = cells.getOrNull(1).orEmpty(),
+                        maxMark = cells.getOrNull(2).orEmpty(),
+                        weightage = cells.getOrNull(3).orEmpty(),
+                        status = cells.getOrNull(4).orEmpty(),
+                        scoredMark = cells.getOrNull(5).orEmpty(),
+                        weightedMark = cells.getOrNull(6).orEmpty()
+                    )
+                )
+            }
+        }
+
+        current?.build()?.let(courses::add)
+        return courses.distinctBy { it.code }
+    }
+
+    private fun parseGpa(document: Document): String? =
+        Regex("(?<!C)\\bGPA\\s*:?\\s*([0-9]+(?:\\.[0-9]+)?)", RegexOption.IGNORE_CASE)
+            .find(document.text())
+            ?.groupValues
+            ?.getOrNull(1)
+
+    private fun parseCgpa(document: Document): String? =
+        Regex("\\bC\\s*\\.?\\s*G\\s*\\.?\\s*P\\s*\\.?\\s*A\\s*\\.?\\s*:?\\s*([0-9]+(?:\\.[0-9]+)?)", RegexOption.IGNORE_CASE)
+            .find(document.text())
+            ?.groupValues
+            ?.getOrNull(1)
+
     private fun parseNextClass(document: Document): NextClass? {
         parseTimetable(document).firstOrNull()?.let { row ->
             return NextClass(
@@ -291,14 +422,66 @@ object VtopParser {
             ?.takeIf { it.isNotBlank() && it.length < 90 }
     }
 
+    private fun Document.findTableValue(vararg labels: String): String? {
+        val normalizedLabels = labels.map { it.normalizedLabel() }.toSet()
+        select("table").forEach { table ->
+            val rows = table.select("tr")
+            rows.zipWithNext().forEach { (headerRow, valueRow) ->
+                val headers = headerRow.cellsText()
+                val values = valueRow.cellsText()
+                val labelIndex = headers.indexOfFirst { header -> header.normalizedLabel() in normalizedLabels }
+                val value = values.getOrNull(labelIndex)?.cleanText()
+                if (!value.isNullOrBlank() && value.length < 100) return value
+            }
+        }
+        return null
+    }
+
     private val timeRegex = Regex("\\b\\d{1,2}:\\d{2}\\s*(?:AM|PM|am|pm)?\\b(?:\\s*-\\s*\\d{1,2}:\\d{2}\\s*(?:AM|PM|am|pm)?)?")
     private val dayRegex = Regex("Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun", RegexOption.IGNORE_CASE)
     private val courseCodeRegex = Regex("\\b[A-Z]{2,5}\\d{3,5}[A-Z]?\\b")
 
     enum class Purpose {
         Attendance,
-        Timetable
+        Timetable,
+        Grades
     }
+}
+
+private fun Element.cellsText(): List<String> =
+    select("td, th")
+        .map { it.text().cleanText() }
+        .filter { it.isNotBlank() }
+
+private fun String.normalizedLabel(): String =
+    lowercase()
+        .replace(Regex("[^a-z0-9]+"), "")
+
+private fun looksLikeStudentName(value: String): Boolean {
+    val text = value.cleanText()
+    if (text.length !in 3..80) return false
+    if (Regex("\\d").containsMatchIn(text)) return false
+    val rejected = listOf("programme", "program", "course", "semester", "register", "registration", "attendance")
+    return rejected.none { text.contains(it, ignoreCase = true) }
+}
+
+private data class CourseMarksBuilder(
+    val code: String,
+    val title: String,
+    val faculty: String,
+    val slot: String,
+    val courseType: String,
+    val assessments: MutableList<MarkEntry> = mutableListOf()
+) {
+    fun build(): CourseMarks =
+        CourseMarks(
+            code = code,
+            title = title,
+            faculty = faculty,
+            slot = slot,
+            courseType = courseType,
+            assessments = assessments.toList()
+        )
 }
 
 private fun String.cleanText(): String = replace(Regex("\\s+"), " ").trim()
@@ -317,6 +500,10 @@ private fun String.matchesPurpose(purpose: VtopParser.Purpose): Boolean =
             contains("timetable", ignoreCase = true) ||
                 contains("time table", ignoreCase = true) ||
                 contains("class schedule", ignoreCase = true)
+        VtopParser.Purpose.Grades ->
+            contains("grade", ignoreCase = true) ||
+                contains("mark", ignoreCase = true) ||
+                contains("semester", ignoreCase = true)
     }
 
 private fun SemesterOption.rank(): Int {
