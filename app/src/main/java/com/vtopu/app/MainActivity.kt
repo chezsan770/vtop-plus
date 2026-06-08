@@ -1,7 +1,9 @@
 package com.vtopu.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.graphics.BitmapFactory
 import android.os.Bundle
@@ -131,6 +133,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.vtopu.app.data.AttendanceCourse
 import com.vtopu.app.data.AppSettings
+import com.vtopu.app.data.AppUpdate
+import com.vtopu.app.data.AppUpdateRepository
 import com.vtopu.app.data.ActiveUserHeartbeat
 import com.vtopu.app.data.AppUsageRepository
 import com.vtopu.app.data.CredentialStore
@@ -409,10 +413,12 @@ private fun VtopApp(
     val credentialStore = remember(context) { CredentialStore(context.applicationContext) }
     val appSettings = remember(context) { AppSettings(context.applicationContext) }
     val appUsageRepository = remember { AppUsageRepository() }
+    val appUpdateRepository = remember { AppUpdateRepository() }
     var savedCredentials by remember { mutableStateOf(credentialStore.load()) }
     var backgroundKeepAliveEnabled by remember { mutableStateOf(appSettings.backgroundKeepAliveEnabled) }
     var showLanding by remember { mutableStateOf(!appSettings.hasSeenLanding) }
     var pendingSaveCredentials by remember { mutableStateOf<SavedCredentials?>(null) }
+    var availableUpdate by remember { mutableStateOf<AppUpdate?>(null) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -478,6 +484,16 @@ private fun VtopApp(
             challenge = repository.prepareLogin()
         }
         loading = false
+    }
+
+    LaunchedEffect(Unit) {
+        val latestUpdate = appUpdateRepository.fetchLatestUpdate().getOrNull()
+        if (latestUpdate != null &&
+            latestUpdate.versionCode > BuildConfig.VERSION_CODE &&
+            (latestUpdate.isForceUpdate || appSettings.dismissedUpdateVersionCode != latestUpdate.versionCode)
+        ) {
+            availableUpdate = latestUpdate
+        }
     }
 
     LaunchedEffect(dashboard != null, backgroundKeepAliveEnabled) {
@@ -699,6 +715,36 @@ private fun VtopApp(
                     },
                     onSkip = {
                         pendingSaveCredentials = null
+                    }
+                )
+            }
+
+            availableUpdate?.let { update ->
+                UpdatePromptDialog(
+                    update = update,
+                    onDownload = {
+                        val targetUrl = update.targetUrl
+                        if (targetUrl.isNullOrBlank()) {
+                            message = "Update link is not available yet."
+                            if (!update.isForceUpdate) {
+                                availableUpdate = null
+                            }
+                        } else {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }.onFailure {
+                                message = "Could not open the update link."
+                            }
+                        }
+                    },
+                    onDismiss = {
+                        if (!update.isForceUpdate) {
+                            appSettings.dismissedUpdateVersionCode = update.versionCode
+                            availableUpdate = null
+                        }
                     }
                 )
             }
@@ -1018,6 +1064,52 @@ private fun SaveCredentialsDialog(
         dismissButton = {
             TextButton(onClick = onSkip) {
                 Text("No")
+            }
+        }
+    )
+}
+
+@Composable
+private fun UpdatePromptDialog(
+    update: AppUpdate,
+    onDownload: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = {
+            if (!update.isForceUpdate) {
+                onDismiss()
+            }
+        },
+        title = { Text(update.title.ifBlank { "Update available" }) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatusChip(text = "Version ${update.versionName}")
+                Text(
+                    text = update.message.ifBlank { "A new version of Gamma is available." },
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                if (update.isForceUpdate) {
+                    Text(
+                        text = "This update is required to continue using the app.",
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDownload) {
+                Text(if (update.targetUrl.isNullOrBlank()) "OK" else "Download update")
+            }
+        },
+        dismissButton = if (update.isForceUpdate) {
+            null
+        } else {
+            {
+                TextButton(onClick = onDismiss) {
+                    Text("Later")
+                }
             }
         }
     )
@@ -2124,7 +2216,23 @@ private fun ProfileSettingsScreen(
                 )
             }
         }
+        item {
+            AppVersionFooter()
+        }
     }
+}
+
+@Composable
+private fun AppVersionFooter() {
+    Text(
+        text = "Gamma v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 18.dp),
+        textAlign = TextAlign.Center,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.52f)
+    )
 }
 
 @Composable

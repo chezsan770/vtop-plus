@@ -29,10 +29,17 @@ class AppSettings(context: Context) {
             preferences.edit().putBoolean(hasSeenLandingKey, value).apply()
         }
 
+    var dismissedUpdateVersionCode: Int
+        get() = preferences.getInt(dismissedUpdateVersionCodeKey, 0)
+        set(value) {
+            preferences.edit().putInt(dismissedUpdateVersionCodeKey, value).apply()
+        }
+
     private companion object {
         const val backgroundKeepAliveKey = "background_keep_alive_enabled"
         const val darkModeKey = "dark_mode_enabled"
         const val appearanceThemeKey = "appearance_theme"
         const val hasSeenLandingKey = "has_seen_landing"
+        const val dismissedUpdateVersionCodeKey = "dismissed_update_version_code"
     }
 }

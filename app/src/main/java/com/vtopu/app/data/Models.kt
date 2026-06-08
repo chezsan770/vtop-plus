@@ -70,6 +70,19 @@ data class ActiveUserHeartbeat(
     val lastSeen: String
 )
 
+data class AppUpdate(
+    val versionName: String,
+    val versionCode: Int,
+    val title: String,
+    val message: String,
+    val apkUrl: String?,
+    val changelogUrl: String?,
+    val isForceUpdate: Boolean
+) {
+    val targetUrl: String?
+        get() = apkUrl?.takeIf { it.isNotBlank() } ?: changelogUrl?.takeIf { it.isNotBlank() }
+}
+
 data class SemesterOption(
     val id: String,
     val label: String
