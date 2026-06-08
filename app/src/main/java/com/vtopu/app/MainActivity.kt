@@ -1,16 +1,22 @@
 package com.vtopu.app
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
+import android.widget.Toast
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
@@ -36,25 +42,36 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CalendarToday
-import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Grade
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.DonutLarge
+import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.Feedback
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -66,6 +83,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -74,8 +92,10 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Typography
@@ -94,6 +114,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -106,10 +128,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import com.vtopu.app.data.AttendanceCourse
+import com.vtopu.app.data.AppSettings
+import com.vtopu.app.data.ActiveUserHeartbeat
+import com.vtopu.app.data.AppUsageRepository
 import com.vtopu.app.data.CredentialStore
 import com.vtopu.app.data.CourseMarks
 import com.vtopu.app.data.DashboardSnapshot
+import com.vtopu.app.data.FeatureRequestPayload
+import com.vtopu.app.data.FeatureRequestRepository
 import com.vtopu.app.data.GradeCourse
 import com.vtopu.app.data.LoginChallenge
 import com.vtopu.app.data.LoginResult
@@ -117,13 +145,21 @@ import com.vtopu.app.data.SavedCredentials
 import com.vtopu.app.data.SemesterOption
 import com.vtopu.app.data.SemesterOptions
 import com.vtopu.app.data.SessionKeepAliveResult
-import com.vtopu.app.data.SpotlightItem
 import com.vtopu.app.data.TimetableClass
 import com.vtopu.app.data.VtopRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import java.time.Instant
+import java.time.DayOfWeek
+import java.time.Duration
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.format.TextStyle as DateTextStyle
+import java.util.Locale
 import kotlin.coroutines.resume
+import kotlin.math.abs
 
 private val OxfordBlue = Color(0xFF1A365D)
 private val OxfordBlueDark = Color(0xFFADC7F7)
@@ -139,6 +175,8 @@ private val DarkCardSoft = Color(0xFF222222)
 private val DarkOutline = Color(0xFF303030)
 private val AcademicFont = FontFamily.Serif
 private const val KEEP_ALIVE_INTERVAL_MILLIS = 12L * 60L * 1000L
+private const val APP_USAGE_HEARTBEAT_INTERVAL_MILLIS = 60L * 1000L
+private const val FEATURE_REQUEST_COOLDOWN_MILLIS = 30L * 1000L
 private val AcademicTypography = Typography().let { base ->
     Typography(
         displayLarge = base.displayLarge.academic(),
@@ -159,16 +197,86 @@ private val AcademicTypography = Typography().let { base ->
     )
 }
 
+private enum class AppearanceTheme(
+    val storageValue: String,
+    val label: String,
+    val previewBackground: Color,
+    val previewAccent: Color
+) {
+    Classic(
+        storageValue = "classic",
+        label = "Classic",
+        previewBackground = DarkBackground,
+        previewAccent = OxfordBlueDark
+    ),
+    Ocean(
+        storageValue = "ocean",
+        label = "Ocean",
+        previewBackground = Color(0xFF071324),
+        previewAccent = Color(0xFF64B5F6)
+    ),
+    Slate(
+        storageValue = "slate",
+        label = "Slate",
+        previewBackground = Color(0xFF111827),
+        previewAccent = Color(0xFF94A3B8)
+    );
+
+    companion object {
+        fun fromStorage(value: String): AppearanceTheme =
+            entries.firstOrNull { it.storageValue == value } ?: Classic
+    }
+}
+
+private data class ScheduleDateOption(
+    val date: LocalDate,
+    val dayLabel: String,
+    val dateLabel: String
+)
+
+private data class ClassTimelineEntry(
+    val classSlot: TimetableClass,
+    val start: LocalDateTime,
+    val end: LocalDateTime
+)
+
+private data class NextClassDisplay(
+    val name: String,
+    val venue: String,
+    val faculty: String,
+    val time: String,
+    val code: String?,
+    val slot: String?,
+    val day: String?,
+    val statusLabel: String,
+    val timeLabel: String,
+    val countdownLabel: String,
+    val progress: Float
+)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            var darkMode by remember { mutableStateOf(true) }
-            VtopTheme(dark = darkMode) {
+            val context = LocalContext.current
+            val appSettings = remember(context) { AppSettings(context.applicationContext) }
+            var darkMode by remember { mutableStateOf(appSettings.darkModeEnabled) }
+            var appearanceTheme by remember {
+                mutableStateOf(AppearanceTheme.fromStorage(appSettings.appearanceTheme))
+            }
+            VtopTheme(dark = darkMode, appearanceTheme = appearanceTheme) {
                 VtopApp(
-                    repository = remember { VtopRepository() },
+                    repository = remember(context) { VtopRepository(context.applicationContext) },
                     darkMode = darkMode,
-                    onToggleTheme = { darkMode = !darkMode }
+                    appearanceTheme = appearanceTheme,
+                    onToggleTheme = {
+                        darkMode = !darkMode
+                        appSettings.darkModeEnabled = darkMode
+                    },
+                    onAppearanceThemeSelected = { selectedTheme ->
+                        appearanceTheme = selectedTheme
+                        appSettings.appearanceTheme = selectedTheme.storageValue
+                    }
                 )
             }
         }
@@ -176,39 +284,107 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun VtopTheme(dark: Boolean, content: @Composable () -> Unit) {
+private fun VtopTheme(
+    dark: Boolean,
+    appearanceTheme: AppearanceTheme,
+    content: @Composable () -> Unit
+) {
     val colors = if (dark) {
-        darkColorScheme(
-            primary = OxfordBlueDark,
-            onPrimary = Color(0xFF001B3C),
-            secondary = Color(0xFF83D8A6),
-            onSecondary = Color(0xFF002111),
-            tertiary = WarmGold,
-            background = DarkBackground,
-            onBackground = Color(0xFFF5F7FB),
-            surface = DarkCard,
-            onSurface = Color(0xFFF5F7FB),
-            surfaceVariant = DarkCardSoft,
-            onSurfaceVariant = Color(0xFFC7CCD4),
-            outline = DarkOutline,
-            error = Color(0xFFFFB4AB)
-        )
+        when (appearanceTheme) {
+            AppearanceTheme.Classic -> darkColorScheme(
+                primary = OxfordBlueDark,
+                onPrimary = Color(0xFF001B3C),
+                secondary = Color(0xFF83D8A6),
+                onSecondary = Color(0xFF002111),
+                tertiary = WarmGold,
+                background = DarkBackground,
+                onBackground = Color(0xFFF5F7FB),
+                surface = DarkCard,
+                onSurface = Color(0xFFF5F7FB),
+                surfaceVariant = DarkCardSoft,
+                onSurfaceVariant = Color(0xFFC7CCD4),
+                outline = DarkOutline,
+                error = Color(0xFFFFB4AB)
+            )
+            AppearanceTheme.Ocean -> darkColorScheme(
+                primary = Color(0xFF7DD3FC),
+                onPrimary = Color(0xFF00263A),
+                secondary = Color(0xFF2DD4BF),
+                onSecondary = Color(0xFF00201C),
+                tertiary = Color(0xFFBFE9FF),
+                background = Color(0xFF020914),
+                onBackground = Color(0xFFEAF7FF),
+                surface = Color(0xFF071426),
+                onSurface = Color(0xFFEAF7FF),
+                surfaceVariant = Color(0xFF0E2238),
+                onSurfaceVariant = Color(0xFFC2D9EA),
+                outline = Color(0xFF1E3A5F),
+                error = Color(0xFFFFB4AB)
+            )
+            AppearanceTheme.Slate -> darkColorScheme(
+                primary = Color(0xFFCBD5E1),
+                onPrimary = Color(0xFF111827),
+                secondary = Color(0xFFA7F3D0),
+                onSecondary = Color(0xFF042014),
+                tertiary = Color(0xFFBFDBFE),
+                background = Color(0xFF080A0D),
+                onBackground = Color(0xFFF4F6F8),
+                surface = Color(0xFF14181F),
+                onSurface = Color(0xFFF4F6F8),
+                surfaceVariant = Color(0xFF1F2937),
+                onSurfaceVariant = Color(0xFFD1D8E2),
+                outline = Color(0xFF334155),
+                error = Color(0xFFFFB4AB)
+            )
+        }
     } else {
-        lightColorScheme(
-            primary = OxfordBlue,
-            onPrimary = Color.White,
-            secondary = SuccessGreen,
-            onSecondary = Color.White,
-            tertiary = Color(0xFF475569),
-            background = LightBackground,
-            onBackground = Color(0xFF0D1C2E),
-            surface = LightCard,
-            onSurface = Color(0xFF0D1C2E),
-            surfaceVariant = LightCardSoft,
-            onSurfaceVariant = Color(0xFF475569),
-            outline = LightOutline,
-            error = Color(0xFFBA1A1A)
-        )
+        when (appearanceTheme) {
+            AppearanceTheme.Classic -> lightColorScheme(
+                primary = OxfordBlue,
+                onPrimary = Color.White,
+                secondary = SuccessGreen,
+                onSecondary = Color.White,
+                tertiary = Color(0xFF475569),
+                background = LightBackground,
+                onBackground = Color(0xFF0D1C2E),
+                surface = LightCard,
+                onSurface = Color(0xFF0D1C2E),
+                surfaceVariant = LightCardSoft,
+                onSurfaceVariant = Color(0xFF475569),
+                outline = LightOutline,
+                error = Color(0xFFBA1A1A)
+            )
+            AppearanceTheme.Ocean -> lightColorScheme(
+                primary = Color(0xFF0369A1),
+                onPrimary = Color.White,
+                secondary = Color(0xFF0F766E),
+                onSecondary = Color.White,
+                tertiary = Color(0xFF2563EB),
+                background = Color(0xFFF2FAFF),
+                onBackground = Color(0xFF092033),
+                surface = Color.White,
+                onSurface = Color(0xFF092033),
+                surfaceVariant = Color(0xFFE3F3FB),
+                onSurfaceVariant = Color(0xFF395466),
+                outline = Color(0xFFB8D7E8),
+                error = Color(0xFFBA1A1A)
+            )
+            AppearanceTheme.Slate -> lightColorScheme(
+                primary = Color(0xFF334155),
+                onPrimary = Color.White,
+                secondary = Color(0xFF475569),
+                onSecondary = Color.White,
+                tertiary = Color(0xFF64748B),
+                background = Color(0xFFF6F7F9),
+                onBackground = Color(0xFF111827),
+                surface = Color.White,
+                onSurface = Color(0xFF111827),
+                surfaceVariant = Color(0xFFE7EAEE),
+                onSurfaceVariant = Color(0xFF475569),
+                outline = Color(0xFFCBD5E1),
+                error = Color(0xFFBA1A1A)
+            )
+        }
     }
 
     MaterialTheme(colorScheme = colors, typography = AcademicTypography, content = content)
@@ -218,19 +394,38 @@ private fun VtopTheme(dark: Boolean, content: @Composable () -> Unit) {
 private fun VtopApp(
     repository: VtopRepository,
     darkMode: Boolean,
-    onToggleTheme: () -> Unit
+    appearanceTheme: AppearanceTheme,
+    onToggleTheme: () -> Unit,
+    onAppearanceThemeSelected: (AppearanceTheme) -> Unit
 ) {
     var challenge by remember { mutableStateOf<LoginChallenge?>(null) }
     var dashboard by remember { mutableStateOf<DashboardSnapshot?>(null) }
-    var spotlight by remember { mutableStateOf<List<SpotlightItem>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var sessionGeneration by remember { mutableIntStateOf(0) }
+    val pagerState = rememberPagerState(pageCount = { 4 })
     val context = LocalContext.current
     val credentialStore = remember(context) { CredentialStore(context.applicationContext) }
+    val appSettings = remember(context) { AppSettings(context.applicationContext) }
+    val appUsageRepository = remember { AppUsageRepository() }
     var savedCredentials by remember { mutableStateOf(credentialStore.load()) }
+    var backgroundKeepAliveEnabled by remember { mutableStateOf(appSettings.backgroundKeepAliveEnabled) }
+    var showLanding by remember { mutableStateOf(!appSettings.hasSeenLanding) }
     var pendingSaveCredentials by remember { mutableStateOf<SavedCredentials?>(null) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            appSettings.backgroundKeepAliveEnabled = true
+            backgroundKeepAliveEnabled = true
+            if (dashboard != null) VtopKeepAliveService.start(context.applicationContext)
+        } else {
+            appSettings.backgroundKeepAliveEnabled = false
+            backgroundKeepAliveEnabled = false
+            message = "Notification permission is needed for background keep-alive."
+        }
+    }
     val scope = rememberCoroutineScope()
     val logout: () -> Unit = {
         scope.launch {
@@ -241,6 +436,9 @@ private fun VtopApp(
             message = null
             challenge = null
             pendingSaveCredentials = null
+            appSettings.backgroundKeepAliveEnabled = false
+            backgroundKeepAliveEnabled = false
+            VtopKeepAliveService.stop(context.applicationContext)
             repository.logout()
             clearWebViewCookies()
             challenge = repository.prepareLogin()
@@ -257,12 +455,62 @@ private fun VtopApp(
             loading = false
         }
     }
+    val setBackgroundKeepAlive: (Boolean) -> Unit = { enabled ->
+        if (!enabled) {
+            appSettings.backgroundKeepAliveEnabled = false
+            backgroundKeepAliveEnabled = false
+            VtopKeepAliveService.stop(context.applicationContext)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            appSettings.backgroundKeepAliveEnabled = true
+            backgroundKeepAliveEnabled = true
+            VtopKeepAliveService.start(context.applicationContext)
+        }
+    }
 
     LaunchedEffect(Unit) {
         loading = true
-        spotlight = repository.loadPublicSpotlight()
-        challenge = repository.prepareLogin()
+        dashboard = repository.restoreSession(savedCredentials?.username)
+        if (dashboard == null && !showLanding) {
+            challenge = repository.prepareLogin()
+        }
         loading = false
+    }
+
+    LaunchedEffect(dashboard != null, backgroundKeepAliveEnabled) {
+        if (dashboard != null && backgroundKeepAliveEnabled) {
+            VtopKeepAliveService.start(context.applicationContext)
+        } else {
+            VtopKeepAliveService.stop(context.applicationContext)
+        }
+    }
+
+    LaunchedEffect(pagerState.currentPage, dashboard != null) {
+        if (dashboard != null && selectedTab != 4) {
+            selectedTab = pagerState.currentPage
+        }
+    }
+
+    LaunchedEffect(dashboard?.profile?.registrationNumber, sessionGeneration) {
+        val activeGeneration = sessionGeneration
+        val profile = dashboard?.profile ?: return@LaunchedEffect
+        val registrationNumber = profile.registrationNumber?.uppercase()?.takeIf { it.isNotBlank() }
+            ?: return@LaunchedEffect
+
+        while (dashboard != null && activeGeneration == sessionGeneration) {
+            appUsageRepository.submitHeartbeat(
+                ActiveUserHeartbeat(
+                    registrationNumber = registrationNumber,
+                    studentName = profile.name,
+                    appVersion = BuildConfig.VERSION_NAME,
+                    lastSeen = Instant.now().toString()
+                )
+            )
+            delay(APP_USAGE_HEARTBEAT_INTERVAL_MILLIS)
+        }
     }
 
     LaunchedEffect(dashboard != null, sessionGeneration) {
@@ -293,8 +541,18 @@ private fun VtopApp(
         bottomBar = {
             if (dashboard != null) {
                 AcademicBottomBar(
-                    selectedTab = selectedTab,
-                    onSelected = { selectedTab = it }
+                    selectedTab = if (selectedTab == 4) 3 else selectedTab,
+                    swipePosition = if (selectedTab == 4) {
+                        3f
+                    } else {
+                        (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 3f)
+                    },
+                    onSelected = { tab ->
+                        selectedTab = tab
+                        scope.launch {
+                            pagerState.animateScrollToPage(tab)
+                        }
+                    }
                 )
             }
         }
@@ -306,10 +564,23 @@ private fun VtopApp(
                 .padding(padding)
                 .windowInsetsPadding(WindowInsets.safeDrawing)
         ) {
-            if (dashboard == null) {
+            if (dashboard == null && showLanding) {
+                LandingScreen(
+                    onContinue = {
+                        appSettings.hasSeenLanding = true
+                        showLanding = false
+                        if (challenge == null) {
+                            scope.launch {
+                                loading = true
+                                challenge = repository.prepareLogin()
+                                loading = false
+                            }
+                        }
+                    }
+                )
+            } else if (dashboard == null) {
                 LoginScreen(
                     challenge = challenge,
-                    spotlight = spotlight,
                     loading = loading,
                     message = message,
                     savedCredentials = savedCredentials,
@@ -351,41 +622,7 @@ private fun VtopApp(
                         }
                     }
                 )
-            } else if (selectedTab == 0) {
-                DashboardScreen(
-                    dashboard = dashboard!!,
-                    spotlight = spotlight,
-                    loading = loading,
-                    darkMode = darkMode,
-                    onToggleTheme = onToggleTheme,
-                    onSemesterSelected = selectSemester,
-                    onLogout = logout,
-                    onRefresh = {
-                        scope.launch {
-                            loading = true
-                            message = null
-                            dashboard = repository.refreshDashboard()
-                            spotlight = repository.loadPublicSpotlight()
-                            loading = false
-                        }
-                    }
-                )
-            } else if (selectedTab == 1) {
-                ClassesScreen(
-                    dashboard = dashboard!!,
-                    darkMode = darkMode,
-                    onToggleTheme = onToggleTheme,
-                    onLogout = logout
-                )
-            } else if (selectedTab == 2) {
-                GradesScreen(
-                    dashboard = dashboard!!,
-                    darkMode = darkMode,
-                    onToggleTheme = onToggleTheme,
-                    onLogout = logout,
-                    onSemesterSelected = selectSemester
-                )
-            } else if (selectedTab == 3) {
+            } else if (selectedTab == 4) {
                 FullPortalScreen(
                     cookieHeaders = repository.cookiesForWebView(),
                     portalStartUrl = repository.portalStartUrl(),
@@ -400,6 +637,45 @@ private fun VtopApp(
                         }
                     }
                 )
+            } else {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    when (page) {
+                        0 -> DashboardScreen(
+                            dashboard = dashboard!!,
+                            loading = loading,
+                            onSemesterSelected = selectSemester,
+                            onRefresh = {
+                                scope.launch {
+                                    loading = true
+                                    message = null
+                                    dashboard = repository.refreshDashboard()
+                                    loading = false
+                                }
+                            }
+                        )
+                        1 -> ClassesScreen(
+                            dashboard = dashboard!!
+                        )
+                        2 -> GradesScreen(
+                            dashboard = dashboard!!,
+                            onSemesterSelected = selectSemester
+                        )
+                        3 -> ProfileSettingsScreen(
+                            dashboard = dashboard!!,
+                            darkMode = darkMode,
+                            appearanceTheme = appearanceTheme,
+                            backgroundKeepAliveEnabled = backgroundKeepAliveEnabled,
+                            onToggleTheme = onToggleTheme,
+                            onAppearanceThemeSelected = onAppearanceThemeSelected,
+                            onBackgroundKeepAliveChanged = setBackgroundKeepAlive,
+                            onOpenPortal = { selectedTab = 4 },
+                            onLogout = logout
+                        )
+                    }
+                }
             }
 
             if (loading) {
@@ -431,7 +707,11 @@ private fun VtopApp(
 }
 
 @Composable
-private fun AcademicBottomBar(selectedTab: Int, onSelected: (Int) -> Unit) {
+private fun AcademicBottomBar(
+    selectedTab: Int,
+    swipePosition: Float,
+    onSelected: (Int) -> Unit
+) {
     NavigationBar(
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp
@@ -439,26 +719,120 @@ private fun AcademicBottomBar(selectedTab: Int, onSelected: (Int) -> Unit) {
         NavigationBarItem(
             selected = selectedTab == 0,
             onClick = { onSelected(0) },
-            icon = { Icon(Icons.Default.Home, contentDescription = null) },
+            icon = {
+                DockIcon(
+                    tabIndex = 0,
+                    swipePosition = swipePosition
+                ) {
+                    Icon(Icons.Default.Home, contentDescription = null)
+                }
+            },
             label = { Text("Home") }
         )
         NavigationBarItem(
             selected = selectedTab == 1,
             onClick = { onSelected(1) },
-            icon = { Icon(Icons.Default.MenuBook, contentDescription = null) },
+            icon = {
+                DockIcon(
+                    tabIndex = 1,
+                    swipePosition = swipePosition
+                ) {
+                    Icon(Icons.Default.MenuBook, contentDescription = null)
+                }
+            },
             label = { Text("Classes") }
         )
         NavigationBarItem(
             selected = selectedTab == 2,
             onClick = { onSelected(2) },
-            icon = { Icon(Icons.Default.Grade, contentDescription = null) },
+            icon = {
+                DockIcon(
+                    tabIndex = 2,
+                    swipePosition = swipePosition
+                ) {
+                    Icon(Icons.Default.Grade, contentDescription = null)
+                }
+            },
             label = { Text("Grades") }
         )
         NavigationBarItem(
             selected = selectedTab == 3,
             onClick = { onSelected(3) },
-            icon = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-            label = { Text("VTOP") }
+            icon = {
+                DockIcon(
+                    tabIndex = 3,
+                    swipePosition = swipePosition
+                ) {
+                    Icon(Icons.Default.Person, contentDescription = null)
+                }
+            },
+            label = { Text("Profile") }
+        )
+    }
+}
+
+@Composable
+private fun DockIcon(
+    tabIndex: Int,
+    swipePosition: Float,
+    content: @Composable () -> Unit
+) {
+    val focus = (1f - abs(swipePosition - tabIndex)).coerceIn(0f, 1f)
+    val scale = 0.92f + (0.22f * focus)
+    val alpha = 0.62f + (0.38f * focus)
+
+    Box(
+        modifier = Modifier.graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+            this.alpha = alpha
+            translationY = -3f * focus
+        },
+        contentAlignment = Alignment.Center
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun LandingScreen(onContinue: () -> Unit) {
+    LaunchedEffect(Unit) {
+        delay(1800)
+        onContinue()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        BrandLogo(
+            modifier = Modifier
+                .fillMaxWidth(0.72f)
+                .height(82.dp),
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Spacer(modifier = Modifier.height(18.dp))
+        Text(
+            text = "Your VTOP, cleaned up.",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Track attendance, classes, grades, and requests from one lighter academic dashboard.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(22.dp))
+        CircularProgressIndicator(
+            modifier = Modifier.size(28.dp),
+            strokeWidth = 3.dp,
+            color = MaterialTheme.colorScheme.primary
         )
     }
 }
@@ -466,7 +840,6 @@ private fun AcademicBottomBar(selectedTab: Int, onSelected: (Int) -> Unit) {
 @Composable
 private fun LoginScreen(
     challenge: LoginChallenge?,
-    spotlight: List<SpotlightItem>,
     loading: Boolean,
     message: String?,
     savedCredentials: SavedCredentials?,
@@ -504,14 +877,19 @@ private fun LoginScreen(
             Spacer(modifier = Modifier.height(34.dp))
             BrandLogo(
                 modifier = Modifier
-                    .fillMaxWidth(0.94f)
-                    .height(96.dp),
+                    .fillMaxWidth(0.76f)
+                    .height(78.dp),
                 color = MaterialTheme.colorScheme.onBackground
             )
         }
 
         item {
-            AcademicCard(modifier = Modifier.fillMaxWidth()) {
+            AcademicCard(
+                modifier = Modifier
+                    .fillMaxWidth(0.94f)
+                    .widthIn(max = 400.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp)
+            ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -579,10 +957,6 @@ private fun LoginScreen(
                     }
                 }
             }
-        }
-
-        item {
-            SpotlightSection(items = spotlight)
         }
     }
 }
@@ -731,82 +1105,113 @@ private fun CaptchaBlock(challenge: LoginChallenge?, onRefresh: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DashboardScreen(
     dashboard: DashboardSnapshot,
-    spotlight: List<SpotlightItem>,
     loading: Boolean,
-    darkMode: Boolean,
-    onToggleTheme: () -> Unit,
     onSemesterSelected: (String, String) -> Unit,
-    onLogout: () -> Unit,
     onRefresh: () -> Unit
 ) {
     val registrationNumber = dashboard.profile.registrationNumber ?: "Signed in to VTOP"
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+    PullToRefreshBox(
+        isRefreshing = loading,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize()
     ) {
-        item {
-            DashboardHeader(
-                greeting = dashboard.profile.greeting,
-                registrationNumber = registrationNumber,
-                loading = loading,
-                darkMode = darkMode,
-                onRefresh = onRefresh,
-                onToggleTheme = onToggleTheme,
-                onLogout = onLogout
-            )
-        }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            item {
+                DashboardHeader(
+                    greeting = dashboard.profile.greeting,
+                    registrationNumber = registrationNumber
+                )
+            }
 
-        item {
-            SemesterSelectorCard(
-                dashboard = dashboard,
-                onSemesterSelected = onSemesterSelected
-            )
-        }
+            item {
+                SemesterSelectorCard(
+                    dashboard = dashboard,
+                    onSemesterSelected = onSemesterSelected
+                )
+            }
 
-        item {
-            AttendanceSection(courses = dashboard.attendance)
-        }
+            item {
+                SectionHeader(
+                    title = "Next Class",
+                    trailing = "TODAY",
+                    icon = Icons.Default.EventNote
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                NextClassCard(dashboard = dashboard)
+            }
 
-        item {
-            SectionHeader(title = "Next Class", trailing = "TODAY")
-            Spacer(modifier = Modifier.height(8.dp))
-            NextClassCard(dashboard = dashboard)
-        }
+            item {
+                AttendanceSection(courses = dashboard.attendance)
+            }
 
-        item {
-            SpotlightSection(items = spotlight)
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
 
 @Composable
 private fun ClassesScreen(
-    dashboard: DashboardSnapshot,
-    darkMode: Boolean,
-    onToggleTheme: () -> Unit,
-    onLogout: () -> Unit
+    dashboard: DashboardSnapshot
 ) {
-    val sortedTimetable = remember(dashboard.timetable) {
-        dashboard.timetable.sortedBy { "${it.day.orEmpty()} ${it.time} ${it.code.orEmpty()}" }
+    val today = remember { LocalDate.now() }
+    var selectedDate by remember { mutableStateOf(today) }
+    val dateOptions = remember(today) {
+        (-2..4).map { offset ->
+            val date = today.plusDays(offset.toLong())
+            ScheduleDateOption(
+                date = date,
+                dayLabel = date.dayOfWeek.getDisplayName(DateTextStyle.SHORT, Locale.ENGLISH).uppercase(Locale.ENGLISH),
+                dateLabel = date.dayOfMonth.toString()
+            )
+        }
+    }
+    val selectedDayKey = remember(selectedDate) {
+        selectedDate.dayOfWeek.getDisplayName(DateTextStyle.SHORT, Locale.ENGLISH).uppercase(Locale.ENGLISH)
+    }
+    val classesForSelectedDay = remember(dashboard.timetable, selectedDayKey) {
+        dashboard.timetable
+            .filter { classSlot -> classSlot.matchesDay(selectedDayKey) }
+            .sortedBy { it.time.startTime() }
+    }
+    val visibleClasses = if (classesForSelectedDay.isNotEmpty()) {
+        classesForSelectedDay
+    } else {
+        dashboard.timetable.sortedBy { "${it.day.orEmpty()} ${it.time.startTime()} ${it.code.orEmpty()}" }
+    }
+    val marksByCode = remember(dashboard.marks) {
+        dashboard.marks.associateBy { it.code.uppercase() }
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            SimpleScreenHeader(
-                title = "Classes",
-                subtitle = dashboard.selectedTimetableSemester?.label ?: "Selected semester",
-                darkMode = darkMode,
-                onToggleTheme = onToggleTheme,
-                onLogout = onLogout
+            ClassesTopHeader()
+        }
+        item {
+            ScheduleDateStrip(
+                dates = dateOptions,
+                selectedDate = selectedDate,
+                onSelected = { selectedDate = it }
+            )
+        }
+        item {
+            TodayScheduleHeader(
+                count = visibleClasses.size,
+                subtitle = if (classesForSelectedDay.isNotEmpty()) {
+                    selectedDate.dayOfWeek.getDisplayName(DateTextStyle.FULL, Locale.ENGLISH)
+                } else {
+                    dashboard.selectedTimetableSemester?.label ?: "Selected semester"
+                }
             )
         }
         if (dashboard.timetable.isEmpty()) {
@@ -815,10 +1220,13 @@ private fun ClassesScreen(
             }
         } else {
             items(
-                items = sortedTimetable,
+                items = visibleClasses,
                 key = { "${it.day.orEmpty()}-${it.time}-${it.code.orEmpty()}-${it.venue}" }
             ) { classSlot ->
-                ClassScheduleCard(classSlot = classSlot)
+                ScheduleClassCard(
+                    classSlot = classSlot,
+                    marks = classSlot.code?.uppercase()?.let { marksByCode[it] }
+                )
             }
         }
     }
@@ -827,9 +1235,6 @@ private fun ClassesScreen(
 @Composable
 private fun GradesScreen(
     dashboard: DashboardSnapshot,
-    darkMode: Boolean,
-    onToggleTheme: () -> Unit,
-    onLogout: () -> Unit,
     onSemesterSelected: (String, String) -> Unit
 ) {
     var showingHistory by remember { mutableStateOf(false) }
@@ -851,10 +1256,7 @@ private fun GradesScreen(
                     "Review your academic performance."
                 } else {
                     dashboard.selectedGradeSemester?.label ?: dashboard.selectedAttendanceSemester?.label ?: "Selected semester"
-                },
-                darkMode = darkMode,
-                onToggleTheme = onToggleTheme,
-                onLogout = onLogout
+                }
             )
         }
         item {
@@ -936,10 +1338,7 @@ private fun GradesScreen(
 @Composable
 private fun SimpleScreenHeader(
     title: String,
-    subtitle: String,
-    darkMode: Boolean,
-    onToggleTheme: () -> Unit,
-    onLogout: () -> Unit
+    subtitle: String
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -955,38 +1354,238 @@ private fun SimpleScreenHeader(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ThemeToggleButton(darkMode = darkMode, onToggleTheme = onToggleTheme)
-            LogoutButton(onLogout = onLogout)
+    }
+}
+
+@Composable
+private fun ClassesTopHeader() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        BrandLogo(
+            modifier = Modifier
+                .width(132.dp)
+                .height(36.dp),
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Icon(
+            Icons.Default.CalendarToday,
+            contentDescription = "Classes",
+            tint = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+@Composable
+private fun ScheduleDateStrip(
+    dates: List<ScheduleDateOption>,
+    selectedDate: LocalDate,
+    onSelected: (LocalDate) -> Unit
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(horizontal = 1.dp)
+    ) {
+        items(
+            items = dates,
+            key = { it.date.toString() }
+        ) { option ->
+            ScheduleDateChip(
+                option = option,
+                selected = option.date == selectedDate,
+                onClick = { onSelected(option.date) }
+            )
         }
     }
 }
 
 @Composable
-private fun ClassScheduleCard(classSlot: TimetableClass) {
-    AcademicCard {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+private fun ScheduleDateChip(
+    option: ScheduleDateOption,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .size(width = 48.dp, height = 58.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = option.dayLabel,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Black,
+                color = if (selected) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = option.dateLabel,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Black,
+                color = if (selected) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+@Composable
+private fun TodayScheduleHeader(
+    count: Int,
+    subtitle: String
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            text = "Today's Schedule",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Black
+        )
+        Text(
+            text = "$count Classes remaining today • $subtitle",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun ScheduleClassCard(
+    classSlot: TimetableClass,
+    marks: CourseMarks?
+) {
+    var showDetails by remember(classSlot.code, classSlot.time, classSlot.venue) { mutableStateOf(false) }
+
+    if (showDetails) {
+        AlertDialog(
+            onDismissRequest = { showDetails = false },
+            title = { Text(classSlot.name.ifBlank { "Class details" }) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    DetailRow(label = "Teacher", value = marks?.faculty?.ifBlank { null } ?: "Check VTOP")
+                    DetailRow(label = "Class number", value = classSlot.venue.ifBlank { "Check VTOP" })
+                    DetailRow(label = "Time", value = classSlot.time.ifBlank { "Check VTOP" })
+                    DetailRow(label = "Day", value = classSlot.day.orEmpty().ifBlank { "Check VTOP" })
+                    DetailRow(label = "Course code", value = classSlot.code.orEmpty().ifBlank { "Check VTOP" })
+                    DetailRow(label = "Slot", value = classSlot.slot.orEmpty().ifBlank { "Check VTOP" })
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDetails = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { showDetails = true },
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    StatusChip(text = classSlot.code ?: classSlot.slot ?: "Class")
-                    Text(
-                        classSlot.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Surface(
+                        modifier = Modifier.size(28.dp),
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.42f))
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.MenuBook,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = classSlot.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = marks?.title?.ifBlank { null } ?: classSlot.name.ifBlank { "Scheduled class" },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
-                Text(classSlot.time.startTime(), fontWeight = FontWeight.Black)
+                ClassStatusPill(text = classSlot.statusLabel())
             }
-            DetailRow(label = "Venue", value = classSlot.venue)
-            DetailRow(label = "Day", value = classSlot.day.orEmpty().ifBlank { "Check VTOP" })
+            Text(
+                text = classSlot.time,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Black
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                ScheduleMetaText(text = classSlot.venue.ifBlank { "Venue TBA" })
+                ScheduleMetaText(text = classSlot.day.orEmpty().ifBlank { "Check VTOP" })
+            }
         }
     }
+}
+
+@Composable
+private fun ClassStatusPill(text: String) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.onBackground,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            color = MaterialTheme.colorScheme.background,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Black,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun ScheduleMetaText(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
 }
 
 @Composable
@@ -1258,12 +1857,7 @@ private fun TermGradeRow(course: GradeCourse) {
 @Composable
 private fun DashboardHeader(
     greeting: String,
-    registrationNumber: String,
-    loading: Boolean,
-    darkMode: Boolean,
-    onRefresh: () -> Unit,
-    onToggleTheme: () -> Unit,
-    onLogout: () -> Unit
+    registrationNumber: String
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
@@ -1277,13 +1871,6 @@ private fun DashboardHeader(
                     .height(38.dp),
                 color = MaterialTheme.colorScheme.onBackground
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ThemeToggleButton(darkMode = darkMode, onToggleTheme = onToggleTheme)
-                IconButton(onClick = onRefresh, enabled = !loading) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh dashboard")
-                }
-                LogoutButton(onLogout = onLogout)
-            }
         }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
@@ -1334,12 +1921,17 @@ private fun SemesterDropdown(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    Box {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(58.dp)
-                .clickable { expanded = true },
+                .clickable { expanded = !expanded },
             shape = RoundedCornerShape(8.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
@@ -1365,23 +1957,778 @@ private fun SemesterDropdown(
                         style = MaterialTheme.typography.bodyLarge
                     )
                 }
-                Icon(Icons.Default.ArrowDropDown, contentDescription = "Select $label semester")
+                Icon(
+                    Icons.Default.ArrowDropDown,
+                    contentDescription = if (expanded) "Hide semester list" else "Show semester list"
+                )
             }
         }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.fillMaxWidth(0.88f)
-        ) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option.label) },
+
+        AnimatedVisibility(visible = expanded) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                options.forEach { option ->
+                    val selectedOption = option.id == selected.id
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                expanded = false
+                                onSelected(option)
+                            },
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (selectedOption) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f)
+                        },
+                        border = BorderStroke(
+                            1.dp,
+                            if (selectedOption) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                            } else {
+                                MaterialTheme.colorScheme.outline
+                            }
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = option.label,
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (selectedOption) FontWeight.Black else FontWeight.SemiBold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (selectedOption) {
+                                Text(
+                                    text = "Selected",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileSettingsScreen(
+    dashboard: DashboardSnapshot,
+    darkMode: Boolean,
+    appearanceTheme: AppearanceTheme,
+    backgroundKeepAliveEnabled: Boolean,
+    onToggleTheme: () -> Unit,
+    onAppearanceThemeSelected: (AppearanceTheme) -> Unit,
+    onBackgroundKeepAliveChanged: (Boolean) -> Unit,
+    onOpenPortal: () -> Unit,
+    onLogout: () -> Unit
+) {
+    var selectedSection by remember { mutableStateOf("Settings") }
+    var showFeatureRequestDialog by remember { mutableStateOf(false) }
+    var featureRequestMessage by remember { mutableStateOf<String?>(null) }
+    var lastFeatureRequestSuccessAt by remember { mutableStateOf(0L) }
+    val featureRequestRepository = remember { FeatureRequestRepository() }
+    val context = LocalContext.current
+    val displayName = dashboard.profile.name
+        ?: dashboard.profile.greeting.removePrefix("Welcome back").trim().ifBlank { "VTOP Student" }
+    val registrationNumber = dashboard.profile.registrationNumber ?: "Signed in"
+
+    if (showFeatureRequestDialog) {
+        FeatureRequestDialog(
+            profileName = dashboard.profile.name,
+            registrationNumber = dashboard.profile.registrationNumber,
+            repository = featureRequestRepository,
+            lastSuccessAtMillis = lastFeatureRequestSuccessAt,
+            onSuccess = {
+                lastFeatureRequestSuccessAt = System.currentTimeMillis()
+                featureRequestMessage = "Request sent. Thanks for helping improve Gamma."
+                Toast.makeText(
+                    context,
+                    "Request sent. Thanks for helping improve Gamma.",
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            onDismiss = { showFeatureRequestDialog = false },
+        )
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            ProfileHeader(
+                displayName = displayName,
+                registrationNumber = registrationNumber
+            )
+        }
+        item {
+            ProfileTabs(
+                selected = selectedSection,
+                onSelected = { selectedSection = it }
+            )
+        }
+
+        if (selectedSection == "Settings") {
+            item {
+                AppearanceSettingsCard(
+                    darkMode = darkMode,
+                    selectedTheme = appearanceTheme,
+                    onToggleTheme = onToggleTheme,
+                    onThemeSelected = onAppearanceThemeSelected
+                )
+            }
+            item {
+                ConnectivitySettingsCard(
+                    enabled = backgroundKeepAliveEnabled,
+                    onEnabledChange = onBackgroundKeepAliveChanged
+                )
+            }
+            item {
+                FeatureRequestCard(
+                    configured = featureRequestRepository.isConfigured,
+                    message = featureRequestMessage,
                     onClick = {
-                        expanded = false
-                        onSelected(option)
+                        featureRequestMessage = null
+                        showFeatureRequestDialog = true
                     }
                 )
             }
+            item {
+                PortalSettingsCard(onOpenPortal = onOpenPortal)
+            }
+            item {
+                LogoutSettingsButton(
+                    displayName = displayName,
+                    onLogout = onLogout
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+        } else {
+            item {
+                AboutProfileCard(
+                    attendanceCount = dashboard.attendance.size,
+                    gradeCount = dashboard.grades.size,
+                    selectedSemester = dashboard.selectedAttendanceSemester?.label
+                        ?: dashboard.selectedTimetableSemester?.label
+                        ?: "Latest semester"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileHeader(
+    displayName: String,
+    registrationNumber: String
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BrandLogo(
+                modifier = Modifier
+                    .width(152.dp)
+                    .height(40.dp),
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Icon(
+                Icons.Default.Refresh,
+                contentDescription = "Updates",
+                tint = MaterialTheme.colorScheme.onBackground
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = displayName,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                StatusChip(text = registrationNumber)
+                Text(
+                    text = "VTOP Student",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileTabs(
+    selected: String,
+    onSelected: (String) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        listOf(
+            "Settings" to Icons.Default.Settings,
+            "About" to Icons.Default.Info
+        ).forEach { (label, icon) ->
+            Column(
+                modifier = Modifier.clickable { onSelected(label) },
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp),
+                        tint = if (selected == label) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Black,
+                        color = if (selected == label) {
+                            MaterialTheme.colorScheme.onBackground
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .width(58.dp)
+                        .height(1.dp)
+                        .background(
+                            if (selected == label) {
+                                MaterialTheme.colorScheme.onBackground
+                            } else {
+                                Color.Transparent
+                            }
+                        )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppearanceSettingsCard(
+    darkMode: Boolean,
+    selectedTheme: AppearanceTheme,
+    onToggleTheme: () -> Unit,
+    onThemeSelected: (AppearanceTheme) -> Unit
+) {
+    AcademicCard(contentPadding = PaddingValues(18.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Text(
+                text = "Appearance",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Black
+            )
+            SettingsSwitchRow(
+                icon = { Icon(Icons.Default.DarkMode, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = "AMOLED Dark Mode",
+                subtitle = "Pure black background to save battery and reduce strain.",
+                checked = darkMode,
+                onCheckedChange = { onToggleTheme() }
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AppearanceTheme.entries.forEach { theme ->
+                    ThemePreviewTile(
+                        title = theme.label,
+                        selected = selectedTheme == theme,
+                        background = theme.previewBackground,
+                        accent = theme.previewAccent,
+                        onClick = { onThemeSelected(theme) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectivitySettingsCard(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    AcademicCard(contentPadding = PaddingValues(18.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Text(
+                text = "Connectivity",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Black
+            )
+            SettingsSwitchRow(
+                icon = { Icon(Icons.Default.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = "VTOP Online",
+                subtitle = "Enables VTOP to be logged in even when app is closed",
+                checked = enabled,
+                onCheckedChange = onEnabledChange
+            )
+        }
+    }
+}
+
+@Composable
+private fun FeatureRequestCard(
+    configured: Boolean,
+    message: String?,
+    onClick: () -> Unit
+) {
+    AcademicCard(contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onClick),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SettingsIconChip(icon = Icons.Default.Feedback)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Request a Feature", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                        Text(
+                            if (configured) {
+                                "Send ideas, bugs, and improvements directly to Gamma."
+                            } else {
+                                "Feature requests are unavailable right now."
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                Icon(Icons.Default.ChevronRight, contentDescription = "Request a feature")
+            }
+            message?.let {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeatureRequestDialog(
+    profileName: String?,
+    registrationNumber: String?,
+    repository: FeatureRequestRepository,
+    lastSuccessAtMillis: Long,
+    onSuccess: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val categories = remember { listOf("Feature", "Bug", "UI", "Backend", "Other") }
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf(categories.first()) }
+    var categoryExpanded by remember { mutableStateOf(false) }
+    var submitting by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val cooldownRemainingSeconds = remember(lastSuccessAtMillis) {
+        (((lastSuccessAtMillis + FEATURE_REQUEST_COOLDOWN_MILLIS) - System.currentTimeMillis()).coerceAtLeast(0L) + 999L) / 1000L
+    }
+    val configured = repository.isConfigured
+    val canSubmit = configured && cooldownRemainingSeconds == 0L && !submitting
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!submitting) onDismiss()
+        },
+        title = { Text("Request a Feature") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (!configured) {
+                    Text(
+                        "Feature requests are unavailable right now.",
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else if (cooldownRemainingSeconds > 0L) {
+                    Text(
+                        "You can send another request in ${cooldownRemainingSeconds}s.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                AcademicTextField(
+                    value = title,
+                    onValueChange = {
+                        title = it.take(80)
+                        error = null
+                    },
+                    label = "Title"
+                )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = {
+                        description = it.take(800)
+                        error = null
+                    },
+                    label = { Text("Description") },
+                    minLines = 4,
+                    maxLines = 6,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                    )
+                )
+                Box {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
+                            .clickable(enabled = !submitting) { categoryExpanded = true },
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(category, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Select category")
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = categoryExpanded,
+                        onDismissRequest = { categoryExpanded = false }
+                    ) {
+                        categories.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option) },
+                                onClick = {
+                                    category = option
+                                    categoryExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+                error?.let {
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = canSubmit,
+                onClick = {
+                    val trimmedTitle = title.trim()
+                    val trimmedDescription = description.trim()
+                    when {
+                        trimmedTitle.length !in 4..80 -> error = "Title must be 4-80 characters."
+                        trimmedDescription.length !in 10..800 -> error = "Description must be 10-800 characters."
+                        else -> {
+                            submitting = true
+                            error = null
+                            scope.launch {
+                                val result = repository.submitFeatureRequest(
+                                    FeatureRequestPayload(
+                                        title = trimmedTitle,
+                                        description = trimmedDescription,
+                                        category = category,
+                                        studentName = profileName,
+                                        registrationNumber = registrationNumber,
+                                        appVersion = BuildConfig.VERSION_NAME,
+                                        createdAt = Instant.now().toString()
+                                    )
+                                )
+                                submitting = false
+                                if (result.isSuccess) {
+                                    onSuccess()
+                                    onDismiss()
+                                } else {
+                                    error = "Couldn't send request. Try again later."
+                                }
+                            }
+                        }
+                    }
+                }
+            ) {
+                Text(if (submitting) "Sending..." else "Send")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                enabled = !submitting,
+                onClick = onDismiss
+            ) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun PortalSettingsCard(onOpenPortal: () -> Unit) {
+    AcademicCard(contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenPortal),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SettingsIconChip(icon = Icons.Default.OpenInNew)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Full VTOP", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                    Text(
+                        "Open the original VTOP portal when you need it.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = "Open Full VTOP")
+        }
+    }
+}
+
+@Composable
+private fun AboutProfileCard(
+    attendanceCount: Int,
+    gradeCount: Int,
+    selectedSemester: String
+) {
+    AcademicCard(contentPadding = PaddingValues(18.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("About", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+            DetailRow(label = "Selected semester", value = selectedSemester)
+            DetailRow(label = "Attendance courses", value = attendanceCount.toString())
+            DetailRow(label = "Grade courses", value = gradeCount.toString())
+        }
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(
+    icon: @Composable () -> Unit,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                icon()
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Black)
+                Text(
+                    subtitle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+@Composable
+private fun SettingsIconChip(icon: ImageVector) {
+    Surface(
+        modifier = Modifier.size(34.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThemePreviewTile(
+    title: String,
+    selected: Boolean,
+    background: Color,
+    accent: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .size(width = 68.dp, height = 78.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(4.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        border = BorderStroke(
+            if (selected) 2.dp else 1.dp,
+            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Surface(
+                modifier = Modifier.size(width = 40.dp, height = 32.dp),
+                shape = RoundedCornerShape(2.dp),
+                color = background,
+                border = BorderStroke(1.dp, accent.copy(alpha = 0.45f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(5.dp),
+                    contentAlignment = Alignment.BottomEnd
+                ) {
+                    Surface(
+                        modifier = Modifier.size(10.dp),
+                        shape = CircleShape,
+                        color = accent
+                    ) {}
+                }
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = if (selected) FontWeight.Black else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun LogoutSettingsButton(
+    displayName: String,
+    onLogout: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .clickable(onClick = onLogout),
+        shape = RoundedCornerShape(4.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.65f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Logout,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Log Out $displayName",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun BackgroundKeepAliveCard(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    AcademicCard(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "Keep VTOP online",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    text = "Runs a foreground service with a persistent notification.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = onEnabledChange
+            )
         }
     }
 }
@@ -1390,7 +2737,8 @@ private fun SemesterDropdown(
 private fun AttendanceSection(courses: List<AttendanceCourse>) {
     SectionHeader(
         title = "My Attendance",
-        trailing = if (courses.isEmpty()) null else "${courses.size} courses"
+        trailing = if (courses.isEmpty()) null else "${courses.size} courses",
+        icon = Icons.Default.DonutLarge
     )
     Spacer(modifier = Modifier.height(8.dp))
     if (courses.isEmpty()) {
@@ -1472,8 +2820,19 @@ private fun AttendanceCourseCard(
 
 @Composable
 private fun NextClassCard(dashboard: DashboardSnapshot) {
-    val nextClass = dashboard.nextClass
+    var now by remember { mutableStateOf(LocalDateTime.now()) }
     var showDetails by remember { mutableStateOf(false) }
+    val nextClass = remember(dashboard, now) {
+        dashboard.resolveNextClassDisplay(now)
+    }
+    val facultyDisplayName = nextClass?.faculty?.toDisplayNameCase().orEmpty()
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = LocalDateTime.now()
+            delay(30_000)
+        }
+    }
 
     if (showDetails && nextClass != null) {
         AlertDialog(
@@ -1487,6 +2846,8 @@ private fun NextClassCard(dashboard: DashboardSnapshot) {
                     DetailRow(label = "Day", value = nextClass.day.orEmpty().ifBlank { "Check VTOP" })
                     DetailRow(label = "Time", value = nextClass.time)
                     DetailRow(label = "Venue", value = nextClass.venue)
+                    DetailRow(label = "Faculty", value = facultyDisplayName.ifBlank { "Check VTOP" })
+                    DetailRow(label = "Status", value = "${nextClass.statusLabel} • ${nextClass.countdownLabel}")
                 }
             },
             confirmButton = {
@@ -1528,67 +2889,172 @@ private fun NextClassCard(dashboard: DashboardSnapshot) {
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                    Column(horizontalAlignment = Alignment.End) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                         ) {
-                            Text("STARTS", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                            Text(nextClass.time.startTime(), fontWeight = FontWeight.Black)
+                            Column(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(nextClass.statusLabel, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                Text(nextClass.timeLabel, fontWeight = FontWeight.Black)
+                            }
                         }
                     }
                 }
+                Text(
+                    text = "${nextClass.statusLabel} • ${nextClass.countdownLabel}",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Black
+                )
                 LinearProgressIndicator(
-                    progress = { 1f },
+                    progress = { nextClass.progress },
                     modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
-                DetailRow(label = "Venue", value = nextClass.venue)
-                nextClass.day?.takeIf { it.isNotBlank() }?.let { day ->
-                    DetailRow(label = "Day", value = day)
-                }
+                NextClassInfoGrid(
+                    venue = nextClass.venue,
+                    faculty = facultyDisplayName.ifBlank { "Check VTOP" },
+                    day = nextClass.day
+                )
             }
         }
     }
 }
 
 @Composable
-private fun SpotlightSection(items: List<SpotlightItem>) {
+private fun NextClassInfoGrid(
+    venue: String,
+    faculty: String,
+    day: String?
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader(title = "Spotlight", trailing = null)
-        if (items.isEmpty()) {
-            EmptyState("No public spotlight item is available right now.")
-        } else {
-            items.take(3).forEach { item ->
-                AcademicCard(contentPadding = PaddingValues(14.dp)) {
-                    Row(verticalAlignment = Alignment.Top) {
-                        Icon(
-                            Icons.Default.Campaign,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(item.title, fontWeight = FontWeight.Medium)
-                    }
-                }
-            }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            NextClassMetaRow(
+                icon = Icons.Default.LocationOn,
+                label = "Venue",
+                value = venue,
+                modifier = Modifier.weight(1f)
+            )
+            NextClassMetaRow(
+                icon = Icons.Default.School,
+                label = "Faculty",
+                value = faculty,
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.End,
+                textAlign = TextAlign.End,
+                trailingIcon = true
+            )
+        }
+        day?.takeIf { it.isNotBlank() }?.let { classDay ->
+            NextClassMetaRow(
+                icon = Icons.Default.CalendarToday,
+                label = "Day",
+                value = classDay,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
 
 @Composable
-private fun SectionHeader(title: String, trailing: String? = null) {
+private fun NextClassMetaRow(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    horizontalAlignment: Alignment.Horizontal = Alignment.Start,
+    textAlign: TextAlign = TextAlign.Start,
+    trailingIcon: Boolean = false
+) {
+    val iconContent: @Composable () -> Unit = {
+        Surface(
+            modifier = Modifier.size(30.dp),
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f))
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+    val textContent: @Composable (Modifier) -> Unit = { textModifier ->
+        Column(
+            modifier = textModifier,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalAlignment = horizontalAlignment
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Bold,
+                textAlign = textAlign
+            )
+            Text(
+                text = value.ifBlank { "Check VTOP" },
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = textAlign
+            )
+        }
+    }
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (trailingIcon) {
+            textContent(Modifier.weight(1f))
+            iconContent()
+        } else {
+            iconContent()
+            textContent(Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(
+    title: String,
+    trailing: String? = null,
+    icon: ImageVector? = null
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            icon?.let {
+                Icon(
+                    it,
+                    contentDescription = null,
+                    modifier = Modifier.size(19.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+        }
         trailing?.let {
             Text(
                 text = it,
@@ -1802,8 +3268,218 @@ private fun String.toBitmap() = runCatching {
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
 }.getOrNull()
 
+private fun DashboardSnapshot.resolveNextClassDisplay(now: LocalDateTime): NextClassDisplay? {
+    val entries = timetable
+        .flatMap { classSlot -> classSlot.timelineEntriesFrom(now) }
+        .sortedBy { it.start }
+
+    val activeEntry = entries.firstOrNull { entry ->
+        !now.isBefore(entry.start) && now.isBefore(entry.end)
+    }
+    if (activeEntry != null) {
+        return activeEntry.toDisplay(
+            dashboard = this,
+            now = now,
+            statusLabel = "ONGOING",
+            targetTime = activeEntry.end,
+            progress = activeEntry.progress(now)
+        )
+    }
+
+    val upcomingEntry = entries.firstOrNull { entry -> entry.start.isAfter(now) }
+    if (upcomingEntry != null) {
+        val statusLabel = if (upcomingEntry.start.toLocalDate() == now.toLocalDate()) {
+            "STARTS"
+        } else {
+            "TOMORROW"
+        }
+        val countdownLabel = if (statusLabel == "TOMORROW") {
+            "Classes for today are over"
+        } else {
+            Duration.between(now, upcomingEntry.start).formatCountdown("away")
+        }
+        return upcomingEntry.toDisplay(
+            dashboard = this,
+            now = now,
+            statusLabel = statusLabel,
+            targetTime = upcomingEntry.start,
+            progress = 0f,
+            countdownLabel = countdownLabel
+        )
+    }
+
+    return nextClass?.let { fallback ->
+        NextClassDisplay(
+            name = fallback.name,
+            venue = fallback.venue,
+            faculty = fallback.code?.let { code ->
+                marks.firstOrNull { it.code.equals(code, ignoreCase = true) }?.faculty
+            }.orEmpty().ifBlank { "Check VTOP" },
+            time = fallback.time,
+            code = fallback.code,
+            slot = fallback.slot,
+            day = fallback.day,
+            statusLabel = "NEXT",
+            timeLabel = fallback.time.startTime(),
+            countdownLabel = "Check VTOP",
+            progress = 0f
+        )
+    }
+}
+
+private fun TimetableClass.timelineEntriesFrom(now: LocalDateTime): List<ClassTimelineEntry> {
+    val dayOfWeek = day.toDayOfWeek() ?: return emptyList()
+    val (startTime, endTime) = time.toTimeRange() ?: return emptyList()
+    val today = now.toLocalDate()
+
+    return (0..7).mapNotNull { offset ->
+        val date = today.plusDays(offset.toLong())
+        if (date.dayOfWeek != dayOfWeek) return@mapNotNull null
+
+        ClassTimelineEntry(
+            classSlot = this,
+            start = LocalDateTime.of(date, startTime),
+            end = LocalDateTime.of(date, endTime)
+        )
+    }
+}
+
+private fun ClassTimelineEntry.toDisplay(
+    dashboard: DashboardSnapshot,
+    now: LocalDateTime,
+    statusLabel: String,
+    targetTime: LocalDateTime,
+    progress: Float,
+    countdownLabel: String? = null
+): NextClassDisplay {
+    val className = classSlot.readableName(dashboard)
+    val timeLabel = if (statusLabel == "ONGOING") {
+        end.toLocalTime().formatClassTime()
+    } else {
+        start.toLocalTime().formatClassTime()
+    }
+    return NextClassDisplay(
+        name = className,
+        venue = classSlot.venue,
+        faculty = classSlot.facultyName(dashboard),
+        time = classSlot.time,
+        code = classSlot.code,
+        slot = classSlot.slot,
+        day = classSlot.day,
+        statusLabel = statusLabel,
+        timeLabel = timeLabel,
+        countdownLabel = countdownLabel ?: Duration.between(now, targetTime).formatCountdown(
+            if (statusLabel == "ONGOING") "left" else "away"
+        ),
+        progress = progress
+    )
+}
+
+private fun TimetableClass.readableName(dashboard: DashboardSnapshot): String {
+    val matchingCourse = dashboard.attendance.firstOrNull { course ->
+        code != null && course.code.equals(code, ignoreCase = true)
+    }
+    return matchingCourse?.name ?: name
+}
+
+private fun TimetableClass.facultyName(dashboard: DashboardSnapshot): String =
+    code?.let { courseCode ->
+        dashboard.marks.firstOrNull { marks ->
+            marks.code.equals(courseCode, ignoreCase = true)
+        }?.faculty
+    }.orEmpty().ifBlank { "Check VTOP" }
+
+private fun ClassTimelineEntry.progress(now: LocalDateTime): Float {
+    val totalMillis = Duration.between(start, end).toMillis().coerceAtLeast(1L)
+    val elapsedMillis = Duration.between(start, now).toMillis().coerceIn(0L, totalMillis)
+    return elapsedMillis.toFloat() / totalMillis.toFloat()
+}
+
+private fun String?.toDayOfWeek(): DayOfWeek? {
+    val normalized = orEmpty().uppercase(Locale.ENGLISH)
+    return when {
+        normalized.contains("MON") -> DayOfWeek.MONDAY
+        normalized.contains("TUE") -> DayOfWeek.TUESDAY
+        normalized.contains("WED") -> DayOfWeek.WEDNESDAY
+        normalized.contains("THU") -> DayOfWeek.THURSDAY
+        normalized.contains("FRI") -> DayOfWeek.FRIDAY
+        normalized.contains("SAT") -> DayOfWeek.SATURDAY
+        normalized.contains("SUN") -> DayOfWeek.SUNDAY
+        else -> null
+    }
+}
+
+private fun String.toTimeRange(): Pair<LocalTime, LocalTime>? {
+    val matches = Regex("(\\d{1,2}):(\\d{2})\\s*([AaPp][Mm])?")
+        .findAll(this)
+        .toList()
+    if (matches.size < 2) return null
+
+    val start = matches[0].toLocalTimeOrNull() ?: return null
+    val end = matches[1].toLocalTimeOrNull() ?: return null
+    return if (end.isAfter(start)) start to end else null
+}
+
+private fun MatchResult.toLocalTimeOrNull(): LocalTime? = runCatching {
+    var hour = groupValues[1].toInt()
+    val minute = groupValues[2].toInt()
+    val meridiem = groupValues.getOrNull(3).orEmpty().uppercase(Locale.ENGLISH)
+
+    if (meridiem == "PM" && hour != 12) hour += 12
+    if (meridiem == "AM" && hour == 12) hour = 0
+
+    LocalTime.of(hour, minute)
+}.getOrNull()
+
+private fun LocalTime.formatClassTime(): String =
+    String.format(
+        Locale.ENGLISH,
+        "%d:%02d %s",
+        if (hour % 12 == 0) 12 else hour % 12,
+        minute,
+        if (hour < 12) "AM" else "PM"
+    )
+
+private fun Duration.formatCountdown(suffix: String): String {
+    val minutes = toMinutes().coerceAtLeast(0L)
+    val days = minutes / (24L * 60L)
+    val hours = (minutes % (24L * 60L)) / 60L
+    val mins = minutes % 60L
+    val value = when {
+        days > 0 -> "${days}d ${hours}h"
+        hours > 0 -> "${hours}h ${mins}m"
+        mins > 0 -> "${mins}m"
+        else -> "Now"
+    }
+    return if (value == "Now") value else "$value $suffix"
+}
+
 private fun String.startTime(): String =
     substringBefore("-").trim().ifBlank { this }
+
+private fun String.toDisplayNameCase(): String {
+    val cleaned = trim().replace(Regex("\\s+"), " ")
+    if (cleaned.isBlank() || cleaned.equals("Check VTOP", ignoreCase = true)) return cleaned
+
+    return Regex("[A-Za-z]+").replace(cleaned) { match ->
+        val word = match.value
+        if (word.length == 1) {
+            word.uppercase(Locale.ENGLISH)
+        } else {
+            word.lowercase(Locale.ENGLISH).replaceFirstChar { first ->
+                first.titlecase(Locale.ENGLISH)
+            }
+        }
+    }
+}
+
+private fun TimetableClass.matchesDay(dayKey: String): Boolean {
+    val normalizedDay = day.orEmpty().uppercase(Locale.ENGLISH)
+    return normalizedDay.contains(dayKey) || normalizedDay.contains(dayKey.take(3))
+}
+
+private fun TimetableClass.statusLabel(): String =
+    if (time.isBlank()) "CLASS" else "NEXT"
 
 private fun GradeCourse.displayCreditsLabel(): String {
     val numericCredits = Regex("\\d+(?:\\.\\d+)?")

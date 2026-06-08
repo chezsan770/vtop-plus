@@ -1,5 +1,6 @@
 package com.vtopu.app.data
 
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -12,9 +13,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-class VtopRepository {
+class VtopRepository(context: Context) {
     private val baseUrl = "https://vtop.vitbhopal.ac.in"
-    private val cookieJar = MemoryCookieJar()
+    private val cookieJar = PersistentCookieJar(SessionCookieStore(context.applicationContext))
     private val client = OkHttpClient.Builder()
         .cookieJar(cookieJar)
         .followRedirects(true)
@@ -134,6 +135,32 @@ class VtopRepository {
         }
     }
 
+    suspend fun restoreSession(savedUsername: String?): DashboardSnapshot? = withContext(Dispatchers.IO) {
+        if (!cookieJar.hasCookies()) return@withContext null
+        runCatching {
+            val html = get("/vtop/content")
+            if (isLoginPage(html)) {
+                resetSessionState(clearCookies = true)
+                return@withContext null
+            }
+
+            lastDashboardHtml = html
+            currentCsrf = VtopParser.parseCsrf(html) ?: currentCsrf
+            authenticatedPortalUrl = lastResponseUrl?.takeUnless { it.contains("/vtop/login", ignoreCase = true) }
+            rememberPage(html)
+
+            val profile = VtopParser.parseDashboard(html).profile
+            currentAuthorizedId = savedUsername?.uppercase()
+                ?: profile.registrationNumber?.uppercase()
+            fetchAcademicData()
+            buildDashboard().also { dashboard ->
+                selectedAttendanceSemesterId = dashboard.selectedAttendanceSemester?.id
+                selectedTimetableSemesterId = dashboard.selectedTimetableSemester?.id
+                selectedGradeSemesterId = dashboard.selectedGradeSemester?.id
+            }
+        }.getOrNull()
+    }
+
     suspend fun refreshDashboard(): DashboardSnapshot = withContext(Dispatchers.IO) {
         val html = runCatching { get("/vtop/content") }
             .getOrElse { lastDashboardHtml.orEmpty() }
@@ -149,8 +176,6 @@ class VtopRepository {
     }
 
     suspend fun keepSessionAlive(): SessionKeepAliveResult = withContext(Dispatchers.IO) {
-        if (currentAuthorizedId.isNullOrBlank()) return@withContext SessionKeepAliveResult.Expired
-
         runCatching {
             val html = get("/vtop/content")
             if (isLoginPage(html)) {
@@ -162,6 +187,9 @@ class VtopRepository {
                 authenticatedPortalUrl = lastResponseUrl?.takeUnless { it.contains("/vtop/login", ignoreCase = true) }
                     ?: authenticatedPortalUrl
                 rememberPage(html)
+                if (currentAuthorizedId.isNullOrBlank()) {
+                    currentAuthorizedId = VtopParser.parseDashboard(html).profile.registrationNumber?.uppercase()
+                }
                 SessionKeepAliveResult.Active
             }
         }.getOrDefault(SessionKeepAliveResult.Failed)
@@ -586,12 +614,27 @@ private fun DashboardSnapshot.withSelectedSemesters(
     )
 }
 
-private class MemoryCookieJar : CookieJar {
+private class PersistentCookieJar(
+    private val store: SessionCookieStore
+) : CookieJar {
     private val cookiesByHost = linkedMapOf<String, MutableList<Cookie>>()
+
+    init {
+        store.load().forEach { cookie ->
+            cookiesByHost.getOrPut(cookie.domain) { mutableListOf() }.add(cookie)
+        }
+    }
+
+    fun hasCookies(): Boolean =
+        synchronized(cookiesByHost) {
+            val now = System.currentTimeMillis()
+            cookiesByHost.values.flatten().any { it.expiresAt > now }
+        }
 
     fun clear() {
         synchronized(cookiesByHost) {
             cookiesByHost.clear()
+            store.clear()
         }
     }
 
@@ -602,6 +645,7 @@ private class MemoryCookieJar : CookieJar {
                 existing.removeAll { it.name == cookie.name && it.path == cookie.path }
                 existing.add(cookie)
             }
+            persistLocked()
         }
     }
 
@@ -612,5 +656,10 @@ private class MemoryCookieJar : CookieJar {
                 ?.filter { cookie -> cookie.expiresAt > now && cookie.matches(url) }
                 .orEmpty()
         }
+    }
+
+    private fun persistLocked() {
+        val now = System.currentTimeMillis()
+        store.save(cookiesByHost.values.flatten().filter { it.expiresAt > now })
     }
 }

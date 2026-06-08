@@ -53,6 +53,23 @@ data class CourseMarks(
     val assessments: List<MarkEntry>
 )
 
+data class FeatureRequestPayload(
+    val title: String,
+    val description: String,
+    val category: String,
+    val studentName: String?,
+    val registrationNumber: String?,
+    val appVersion: String,
+    val createdAt: String
+)
+
+data class ActiveUserHeartbeat(
+    val registrationNumber: String,
+    val studentName: String?,
+    val appVersion: String,
+    val lastSeen: String
+)
+
 data class SemesterOption(
     val id: String,
     val label: String

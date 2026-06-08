@@ -1,7 +1,21 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { input ->
+            load(input)
+        }
+    }
+}
+
+fun buildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 android {
     namespace = "com.vtopu.app"
@@ -11,11 +25,22 @@ android {
         applicationId = "com.vtopu.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 30
-        versionName = "3.9"
+        versionCode = 32
+        versionName = "4.1"
+        buildConfigField(
+            "String",
+            "SUPABASE_URL",
+            buildConfigString(localProperties.getProperty("SUPABASE_URL", ""))
+        )
+        buildConfigField(
+            "String",
+            "SUPABASE_ANON_KEY",
+            buildConfigString(localProperties.getProperty("SUPABASE_ANON_KEY", ""))
+        )
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 }
@@ -23,6 +48,7 @@ android {
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.material3)
