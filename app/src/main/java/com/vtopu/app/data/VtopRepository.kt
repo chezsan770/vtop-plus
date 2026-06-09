@@ -223,6 +223,8 @@ class VtopRepository(context: Context) {
                 append(cookie.name)
                 append('=')
                 append(cookie.value)
+                append("; Domain=")
+                append(cookie.domain)
                 append("; Path=")
                 append(cookie.path)
                 if (cookie.secure) append("; Secure")
@@ -531,6 +533,7 @@ class VtopRepository(context: Context) {
             gradeHistory = gradeHistorySnapshot?.gradeHistory?.takeIf { it.isNotEmpty() } ?: base.gradeHistory,
             gpa = gradesSnapshot?.gpa ?: gradeHistorySnapshot?.gpa ?: base.gpa,
             cgpa = gradeHistorySnapshot?.cgpa ?: gradesSnapshot?.cgpa ?: base.cgpa,
+            totalCredits = gradeHistorySnapshot?.totalCredits ?: gradesSnapshot?.totalCredits ?: base.totalCredits,
             attendanceSemesters = attendanceSnapshot?.attendanceSemesters?.takeIf { it.isNotEmpty() }
                 ?: base.attendanceSemesters,
             timetableSemesters = timetableSnapshot?.timetableSemesters?.takeIf { it.isNotEmpty() }

@@ -23,6 +23,12 @@ class AppSettings(context: Context) {
             preferences.edit().putString(appearanceThemeKey, value).apply()
         }
 
+    var accentColor: String
+        get() = preferences.getString(accentColorKey, "gamma") ?: "gamma"
+        set(value) {
+            preferences.edit().putString(accentColorKey, value).apply()
+        }
+
     var hasSeenLanding: Boolean
         get() = preferences.getBoolean(hasSeenLandingKey, false)
         set(value) {
@@ -39,6 +45,7 @@ class AppSettings(context: Context) {
         const val backgroundKeepAliveKey = "background_keep_alive_enabled"
         const val darkModeKey = "dark_mode_enabled"
         const val appearanceThemeKey = "appearance_theme"
+        const val accentColorKey = "accent_color"
         const val hasSeenLandingKey = "has_seen_landing"
         const val dismissedUpdateVersionCodeKey = "dismissed_update_version_code"
     }

@@ -58,6 +58,7 @@ object VtopParser {
             marks = parseMarks(document),
             gpa = parseGpa(document),
             cgpa = parseCgpa(document),
+            totalCredits = parseTotalCredits(document),
             attendanceSemesters = attendanceSemesters,
             timetableSemesters = timetableSemesters,
             gradeSemesters = gradeSemesters,
@@ -361,6 +362,12 @@ object VtopParser {
     private fun parseCgpa(document: Document): String? =
         Regex("\\bC\\s*\\.?\\s*G\\s*\\.?\\s*P\\s*\\.?\\s*A\\s*\\.?\\s*:?\\s*([0-9]+(?:\\.[0-9]+)?)", RegexOption.IGNORE_CASE)
             .find(document.text())
+            ?.groupValues
+            ?.getOrNull(1)
+
+    private fun parseTotalCredits(document: Document): String? =
+        Regex("\\bTotal\\s+Credits?\\s*:?\\s*([0-9]+(?:\\.[0-9]+)?)", RegexOption.IGNORE_CASE)
+            .find(document.text().cleanText())
             ?.groupValues
             ?.getOrNull(1)
 

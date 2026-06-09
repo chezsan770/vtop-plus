@@ -1,6 +1,8 @@
 package com.vtopu.app
 
 import android.Manifest
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -10,22 +12,33 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
+import android.view.Gravity
 import android.widget.Toast
+import android.widget.FrameLayout
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -57,6 +70,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Grade
 import androidx.compose.material.icons.filled.Home
@@ -92,12 +106,14 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Typography
@@ -110,11 +126,16 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -131,6 +152,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import com.vtopu.app.data.AttendanceCourse
 import com.vtopu.app.data.AppSettings
 import com.vtopu.app.data.AppUpdate
@@ -151,6 +173,12 @@ import com.vtopu.app.data.SemesterOptions
 import com.vtopu.app.data.SessionKeepAliveResult
 import com.vtopu.app.data.TimetableClass
 import com.vtopu.app.data.VtopRepository
+import com.startapp.sdk.ads.banner.Banner
+import com.startapp.sdk.adsbase.Ad
+import com.startapp.sdk.adsbase.StartAppAd
+import com.startapp.sdk.adsbase.StartAppAd.AdMode
+import com.startapp.sdk.adsbase.StartAppSDK
+import com.startapp.sdk.adsbase.adlisteners.AdEventListener
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -163,7 +191,10 @@ import java.time.LocalTime
 import java.time.format.TextStyle as DateTextStyle
 import java.util.Locale
 import kotlin.coroutines.resume
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 private val OxfordBlue = Color(0xFF1A365D)
 private val OxfordBlueDark = Color(0xFFADC7F7)
@@ -181,6 +212,8 @@ private val AcademicFont = FontFamily.Serif
 private const val KEEP_ALIVE_INTERVAL_MILLIS = 12L * 60L * 1000L
 private const val APP_USAGE_HEARTBEAT_INTERVAL_MILLIS = 60L * 1000L
 private const val FEATURE_REQUEST_COOLDOWN_MILLIS = 30L * 1000L
+private const val GRADES_AUTHENTICATORS =
+    BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
 private val AcademicTypography = Typography().let { base ->
     Typography(
         displayLarge = base.displayLarge.academic(),
@@ -232,6 +265,64 @@ private enum class AppearanceTheme(
     }
 }
 
+private enum class AccentColor(
+    val storageValue: String,
+    val label: String,
+    val lightPrimary: Color,
+    val darkPrimary: Color,
+    val lightOnPrimary: Color = Color.White,
+    val darkOnPrimary: Color = Color(0xFF061314)
+) {
+    Gamma(
+        storageValue = "gamma",
+        label = "Gamma",
+        lightPrimary = OxfordBlue,
+        darkPrimary = OxfordBlueDark,
+        darkOnPrimary = Color(0xFF001B3C)
+    ),
+    Mint(
+        storageValue = "mint",
+        label = "Mint",
+        lightPrimary = Color(0xFF047857),
+        darkPrimary = Color(0xFF5EEAD4),
+        darkOnPrimary = Color(0xFF00201A)
+    ),
+    Violet(
+        storageValue = "violet",
+        label = "Violet",
+        lightPrimary = Color(0xFF6D28D9),
+        darkPrimary = Color(0xFFC4B5FD),
+        darkOnPrimary = Color(0xFF261047)
+    ),
+    Amber(
+        storageValue = "amber",
+        label = "Amber",
+        lightPrimary = Color(0xFFB45309),
+        darkPrimary = Color(0xFFFCD34D),
+        lightOnPrimary = Color.White,
+        darkOnPrimary = Color(0xFF2B1700)
+    ),
+    Rose(
+        storageValue = "rose",
+        label = "Rose",
+        lightPrimary = Color(0xFFBE123C),
+        darkPrimary = Color(0xFFFDA4AF),
+        darkOnPrimary = Color(0xFF3B0712)
+    );
+
+    fun primary(dark: Boolean): Color = if (dark) darkPrimary else lightPrimary
+    fun onPrimary(dark: Boolean): Color = if (dark) darkOnPrimary else lightOnPrimary
+    fun secondary(dark: Boolean): Color =
+        if (dark) primary(dark).copy(alpha = 0.82f) else primary(dark).copy(alpha = 0.88f)
+    fun tertiary(dark: Boolean): Color =
+        if (dark) primary(dark).copy(alpha = 0.62f) else primary(dark).copy(alpha = 0.72f)
+
+    companion object {
+        fun fromStorage(value: String): AccentColor =
+            entries.firstOrNull { it.storageValue == value } ?: Gamma
+    }
+}
+
 private data class ScheduleDateOption(
     val date: LocalDate,
     val dayLabel: String,
@@ -258,9 +349,17 @@ private data class NextClassDisplay(
     val progress: Float
 )
 
-class MainActivity : ComponentActivity() {
+private data class NextClassCardState(
+    val activeClass: NextClassDisplay?,
+    val nextClass: NextClassDisplay?
+)
+
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+            StartAppSDK.init(this, BuildConfig.STARTAPP_APP_ID, false)
+        }
         setContent {
             val context = LocalContext.current
             val appSettings = remember(context) { AppSettings(context.applicationContext) }
@@ -268,11 +367,15 @@ class MainActivity : ComponentActivity() {
             var appearanceTheme by remember {
                 mutableStateOf(AppearanceTheme.fromStorage(appSettings.appearanceTheme))
             }
-            VtopTheme(dark = darkMode, appearanceTheme = appearanceTheme) {
+            var accentColor by remember {
+                mutableStateOf(AccentColor.fromStorage(appSettings.accentColor))
+            }
+            VtopTheme(dark = darkMode, appearanceTheme = appearanceTheme, accentColor = accentColor) {
                 VtopApp(
                     repository = remember(context) { VtopRepository(context.applicationContext) },
                     darkMode = darkMode,
                     appearanceTheme = appearanceTheme,
+                    accentColor = accentColor,
                     onToggleTheme = {
                         darkMode = !darkMode
                         appSettings.darkModeEnabled = darkMode
@@ -280,20 +383,117 @@ class MainActivity : ComponentActivity() {
                     onAppearanceThemeSelected = { selectedTheme ->
                         appearanceTheme = selectedTheme
                         appSettings.appearanceTheme = selectedTheme.storageValue
+                    },
+                    onAccentColorSelected = { selectedAccent ->
+                        accentColor = selectedAccent
+                        appSettings.accentColor = selectedAccent.storageValue
                     }
                 )
             }
         }
     }
+
+    fun showKeepAliveRewardedAd(
+        onRewardEarned: () -> Unit,
+        onUnavailable: () -> Unit
+    ) {
+        if (BuildConfig.STARTAPP_APP_ID.isBlank()) {
+            onRewardEarned()
+            return
+        }
+
+        val rewardedAd = StartAppAd(this)
+        var rewardEarned = false
+        var callbackCompleted = false
+        val mainHandler = Handler(Looper.getMainLooper())
+        val completeAsUnavailable = {
+            if (!callbackCompleted && !rewardEarned) {
+                callbackCompleted = true
+                onUnavailable()
+            }
+        }
+        val noFillTimeout = Runnable {
+            runOnUiThread(completeAsUnavailable)
+        }
+
+        rewardedAd.setVideoListener {
+            rewardEarned = true
+            if (!callbackCompleted) {
+                callbackCompleted = true
+                mainHandler.removeCallbacks(noFillTimeout)
+                runOnUiThread(onRewardEarned)
+            }
+        }
+        mainHandler.postDelayed(noFillTimeout, 8_000L)
+        rewardedAd.loadAd(
+            AdMode.REWARDED_VIDEO,
+            object : AdEventListener {
+                override fun onReceiveAd(ad: Ad) {
+                    mainHandler.removeCallbacks(noFillTimeout)
+                    if (!rewardedAd.showAd()) {
+                        runOnUiThread(completeAsUnavailable)
+                    }
+                }
+
+                override fun onFailedToReceiveAd(ad: Ad?) {
+                    mainHandler.removeCallbacks(noFillTimeout)
+                    runOnUiThread(completeAsUnavailable)
+                }
+            }
+        )
+    }
+
+    fun showGradesBiometricPrompt(
+        onUnlocked: () -> Unit,
+        onError: (String) -> Unit,
+        onFailed: () -> Unit
+    ) {
+        val prompt = BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    super.onAuthenticationSucceeded(result)
+                    onUnlocked()
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    super.onAuthenticationError(errorCode, errString)
+                    onError(errString.toString())
+                }
+
+                override fun onAuthenticationFailed() {
+                    super.onAuthenticationFailed()
+                    onFailed()
+                }
+            }
+        )
+
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Unlock Grades")
+            .setSubtitle("Use fingerprint, face, phone PIN, pattern, or password.")
+            .setAllowedAuthenticators(GRADES_AUTHENTICATORS)
+            .build()
+
+        prompt.authenticate(promptInfo)
+    }
 }
+
+private tailrec fun Context.findMainActivity(): MainActivity? =
+    when (this) {
+        is MainActivity -> this
+        is ContextWrapper -> baseContext.findMainActivity()
+        else -> null
+    }
 
 @Composable
 private fun VtopTheme(
     dark: Boolean,
     appearanceTheme: AppearanceTheme,
+    accentColor: AccentColor,
     content: @Composable () -> Unit
 ) {
-    val colors = if (dark) {
+    val baseColors = if (dark) {
         when (appearanceTheme) {
             AppearanceTheme.Classic -> darkColorScheme(
                 primary = OxfordBlueDark,
@@ -390,6 +590,12 @@ private fun VtopTheme(
             )
         }
     }
+    val colors = baseColors.copy(
+        primary = accentColor.primary(dark),
+        onPrimary = accentColor.onPrimary(dark),
+        secondary = accentColor.secondary(dark),
+        tertiary = accentColor.tertiary(dark)
+    )
 
     MaterialTheme(colorScheme = colors, typography = AcademicTypography, content = content)
 }
@@ -399,8 +605,10 @@ private fun VtopApp(
     repository: VtopRepository,
     darkMode: Boolean,
     appearanceTheme: AppearanceTheme,
+    accentColor: AccentColor,
     onToggleTheme: () -> Unit,
-    onAppearanceThemeSelected: (AppearanceTheme) -> Unit
+    onAppearanceThemeSelected: (AppearanceTheme) -> Unit,
+    onAccentColorSelected: (AccentColor) -> Unit
 ) {
     var challenge by remember { mutableStateOf<LoginChallenge?>(null) }
     var dashboard by remember { mutableStateOf<DashboardSnapshot?>(null) }
@@ -414,6 +622,10 @@ private fun VtopApp(
     val appSettings = remember(context) { AppSettings(context.applicationContext) }
     val appUsageRepository = remember { AppUsageRepository() }
     val appUpdateRepository = remember { AppUpdateRepository() }
+    val activity = remember(context) { context.findMainActivity() }
+    val openPortalWindow: () -> Unit = {
+        context.startActivity(PortalActivity.createIntent(context))
+    }
     var savedCredentials by remember { mutableStateOf(credentialStore.load()) }
     var backgroundKeepAliveEnabled by remember { mutableStateOf(appSettings.backgroundKeepAliveEnabled) }
     var showLanding by remember { mutableStateOf(!appSettings.hasSeenLanding) }
@@ -461,12 +673,8 @@ private fun VtopApp(
             loading = false
         }
     }
-    val setBackgroundKeepAlive: (Boolean) -> Unit = { enabled ->
-        if (!enabled) {
-            appSettings.backgroundKeepAliveEnabled = false
-            backgroundKeepAliveEnabled = false
-            VtopKeepAliveService.stop(context.applicationContext)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+    val enableBackgroundKeepAlive: () -> Unit = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -474,6 +682,36 @@ private fun VtopApp(
             appSettings.backgroundKeepAliveEnabled = true
             backgroundKeepAliveEnabled = true
             VtopKeepAliveService.start(context.applicationContext)
+        }
+    }
+    val setBackgroundKeepAlive: (Boolean) -> Unit = { enabled ->
+        if (!enabled) {
+            appSettings.backgroundKeepAliveEnabled = false
+            backgroundKeepAliveEnabled = false
+            VtopKeepAliveService.stop(context.applicationContext)
+        } else if (BuildConfig.STARTAPP_APP_ID.isBlank()) {
+            message = "Ads are not configured in this build, so VTOP Online was enabled directly."
+            Toast.makeText(context, "VTOP Online enabled for this build.", Toast.LENGTH_SHORT).show()
+            enableBackgroundKeepAlive()
+        } else {
+            message = "Watch a short rewarded ad to enable VTOP Online."
+            Toast.makeText(context, "Watch a short ad to enable VTOP Online.", Toast.LENGTH_SHORT).show()
+            activity?.showKeepAliveRewardedAd(
+                onRewardEarned = {
+                    message = "VTOP Online enabled. Thanks for supporting Gamma."
+                    Toast.makeText(context, "VTOP Online enabled.", Toast.LENGTH_SHORT).show()
+                    enableBackgroundKeepAlive()
+                },
+                onUnavailable = {
+                    message = "Reward ad was not available, so VTOP Online was enabled directly."
+                    Toast.makeText(context, "No reward ad available. VTOP Online enabled.", Toast.LENGTH_SHORT).show()
+                    enableBackgroundKeepAlive()
+                }
+            ) ?: run {
+                message = "Reward ad could not be opened, so VTOP Online was enabled directly."
+                Toast.makeText(context, "VTOP Online enabled.", Toast.LENGTH_SHORT).show()
+                enableBackgroundKeepAlive()
+            }
         }
     }
 
@@ -580,6 +818,9 @@ private fun VtopApp(
                 .padding(padding)
                 .windowInsetsPadding(WindowInsets.safeDrawing)
         ) {
+            if (darkMode) {
+                AmoledNeonBackground()
+            }
             if (dashboard == null && showLanding) {
                 LandingScreen(
                     onContinue = {
@@ -677,17 +918,20 @@ private fun VtopApp(
                         )
                         2 -> GradesScreen(
                             dashboard = dashboard!!,
+                            isActive = selectedTab == 2 && pagerState.settledPage == 2,
                             onSemesterSelected = selectSemester
                         )
                         3 -> ProfileSettingsScreen(
                             dashboard = dashboard!!,
                             darkMode = darkMode,
                             appearanceTheme = appearanceTheme,
+                            accentColor = accentColor,
                             backgroundKeepAliveEnabled = backgroundKeepAliveEnabled,
                             onToggleTheme = onToggleTheme,
                             onAppearanceThemeSelected = onAppearanceThemeSelected,
+                            onAccentColorSelected = onAccentColorSelected,
                             onBackgroundKeepAliveChanged = setBackgroundKeepAlive,
-                            onOpenPortal = { selectedTab = 4 },
+                            onOpenPortal = openPortalWindow,
                             onLogout = logout
                         )
                     }
@@ -753,11 +997,99 @@ private fun VtopApp(
 }
 
 @Composable
+private fun AmoledNeonBackground() {
+    val accent = MaterialTheme.colorScheme.primary
+    val transition = rememberInfiniteTransition(label = "amoled-neon")
+    val drift by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 9500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "neon-drift"
+    )
+    val pulse by transition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "neon-pulse"
+    )
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val canvasWidth = size.width
+        val canvasHeight = size.height
+        if (canvasWidth <= 0f || canvasHeight <= 0f) return@Canvas
+
+        fun drawBeam(progress: Float, yFraction: Float, lengthFraction: Float, alphaScale: Float) {
+            val beamLength = canvasWidth * lengthFraction
+            val travel = canvasWidth + beamLength * 2f
+            val x = -beamLength + ((progress % 1f) * travel)
+            val start = Offset(x, canvasHeight * yFraction)
+            val end = Offset(x + beamLength, canvasHeight * (yFraction + 0.10f))
+            val glow = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    accent.copy(alpha = 0.08f * pulse * alphaScale),
+                    accent.copy(alpha = 0.30f * pulse * alphaScale),
+                    accent.copy(alpha = 0.08f * pulse * alphaScale),
+                    Color.Transparent
+                ),
+                start = start,
+                end = end
+            )
+            drawLine(
+                brush = glow,
+                start = start,
+                end = end,
+                strokeWidth = 30.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                brush = glow,
+                start = start,
+                end = end,
+                strokeWidth = 4.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+        }
+
+        drawBeam(drift, 0.10f, 0.78f, 1.18f)
+        drawBeam((drift + 0.34f) % 1f, 0.44f, 0.64f, 0.92f)
+        drawBeam((drift + 0.68f) % 1f, 0.78f, 0.72f, 1.0f)
+
+        val topLineAlpha = 0.12f + (0.08f * pulse)
+        drawLine(
+            color = accent.copy(alpha = topLineAlpha),
+            start = Offset(0f, canvasHeight * 0.035f),
+            end = Offset(canvasWidth, canvasHeight * 0.02f),
+            strokeWidth = 1.dp.toPx()
+        )
+        drawLine(
+            color = accent.copy(alpha = topLineAlpha * 0.72f),
+            start = Offset(canvasWidth * 0.08f, canvasHeight),
+            end = Offset(canvasWidth * 0.92f, canvasHeight * 0.96f),
+            strokeWidth = 1.dp.toPx()
+        )
+    }
+}
+
+@Composable
 private fun AcademicBottomBar(
     selectedTab: Int,
     swipePosition: Float,
     onSelected: (Int) -> Unit
 ) {
+    val dockItemColors = NavigationBarItemDefaults.colors(
+        selectedIconColor = MaterialTheme.colorScheme.primary,
+        selectedTextColor = MaterialTheme.colorScheme.primary,
+        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f),
+        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f)
+    )
     NavigationBar(
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp
@@ -773,7 +1105,8 @@ private fun AcademicBottomBar(
                     Icon(Icons.Default.Home, contentDescription = null)
                 }
             },
-            label = { Text("Home") }
+            label = { Text("Home") },
+            colors = dockItemColors
         )
         NavigationBarItem(
             selected = selectedTab == 1,
@@ -786,7 +1119,8 @@ private fun AcademicBottomBar(
                     Icon(Icons.Default.MenuBook, contentDescription = null)
                 }
             },
-            label = { Text("Classes") }
+            label = { Text("Classes") },
+            colors = dockItemColors
         )
         NavigationBarItem(
             selected = selectedTab == 2,
@@ -799,7 +1133,8 @@ private fun AcademicBottomBar(
                     Icon(Icons.Default.Grade, contentDescription = null)
                 }
             },
-            label = { Text("Grades") }
+            label = { Text("Grades") },
+            colors = dockItemColors
         )
         NavigationBarItem(
             selected = selectedTab == 3,
@@ -812,7 +1147,8 @@ private fun AcademicBottomBar(
                     Icon(Icons.Default.Person, contentDescription = null)
                 }
             },
-            label = { Text("Profile") }
+            label = { Text("Profile") },
+            colors = dockItemColors
         )
     }
 }
@@ -1012,14 +1348,14 @@ private fun SavedCredentialCard(
     username: String,
     onForgetCredentials: () -> Unit
 ) {
-    Surface(
+    GlassPanel(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f))
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        baseTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1165,13 +1501,13 @@ private fun CaptchaBlock(challenge: LoginChallenge?, onRefresh: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Surface(
+        GlassPanel(
             modifier = Modifier
                 .weight(1f)
                 .height(82.dp),
             shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            contentPadding = PaddingValues(0.dp),
+            baseTint = MaterialTheme.colorScheme.surfaceVariant
         ) {
             val image = remember(challenge?.captchaBase64) {
                 challenge?.captchaBase64?.toBitmap()
@@ -1245,6 +1581,11 @@ private fun DashboardScreen(
                 AttendanceSection(courses = dashboard.attendance)
             }
 
+            if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+                item {
+                    StartIoBannerAd()
+                }
+            }
         }
     }
 }
@@ -1254,7 +1595,14 @@ private fun ClassesScreen(
     dashboard: DashboardSnapshot
 ) {
     val today = remember { LocalDate.now() }
+    var now by remember { mutableStateOf(LocalDateTime.now()) }
     var selectedDate by remember { mutableStateOf(today) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = LocalDateTime.now()
+            delay(30_000)
+        }
+    }
     val dateOptions = remember(today) {
         (-2..4).map { offset ->
             val date = today.plusDays(offset.toLong())
@@ -1317,8 +1665,15 @@ private fun ClassesScreen(
             ) { classSlot ->
                 ScheduleClassCard(
                     classSlot = classSlot,
-                    marks = classSlot.code?.uppercase()?.let { marksByCode[it] }
+                    marks = classSlot.code?.uppercase()?.let { marksByCode[it] },
+                    selectedDate = selectedDate,
+                    now = now
                 )
+            }
+        }
+        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+            item {
+                StartIoBannerAd()
             }
         }
     }
@@ -1327,14 +1682,84 @@ private fun ClassesScreen(
 @Composable
 private fun GradesScreen(
     dashboard: DashboardSnapshot,
+    isActive: Boolean,
     onSemesterSelected: (String, String) -> Unit
 ) {
-    var showingHistory by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val activity = remember(context) { context.findMainActivity() }
+    var gradesUnlocked by rememberSaveable { mutableStateOf(false) }
+    var authAttempted by rememberSaveable { mutableStateOf(false) }
+    var authMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    val biometricStatus = remember(context) {
+        BiometricManager.from(context).canAuthenticate(GRADES_AUTHENTICATORS)
+    }
+    val requestUnlock = {
+        authAttempted = true
+        when (biometricStatus) {
+            BiometricManager.BIOMETRIC_SUCCESS -> {
+                val hostActivity = activity
+                if (hostActivity == null) {
+                    authMessage = "Biometric unlock is unavailable right now."
+                } else {
+                    hostActivity.showGradesBiometricPrompt(
+                        onUnlocked = {
+                            gradesUnlocked = true
+                            authMessage = null
+                        },
+                        onError = { reason ->
+                            authMessage = reason.ifBlank { "Grades stayed locked." }
+                        },
+                        onFailed = {
+                            authMessage = "Fingerprint or face did not match. Try again."
+                        }
+                    )
+                }
+            }
+            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
+                authMessage = "Set up fingerprint, face unlock, or a phone PIN/password to protect grades."
+            }
+            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> {
+                authMessage = "This device does not support biometric unlock."
+            }
+            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> {
+                authMessage = "Biometric unlock is temporarily unavailable."
+            }
+            else -> {
+                authMessage = "Biometric unlock is unavailable right now."
+            }
+        }
+    }
+
+    LaunchedEffect(biometricStatus, gradesUnlocked, isActive) {
+        if (isActive && !gradesUnlocked && !authAttempted && biometricStatus == BiometricManager.BIOMETRIC_SUCCESS) {
+            requestUnlock()
+        }
+    }
+
+    if (!gradesUnlocked) {
+        GradesSecurityScreen(
+            status = biometricStatus,
+            message = authMessage,
+            onUnlock = requestUnlock
+        )
+        return
+    }
+
+    var selectedGradeSection by remember { mutableStateOf("Current") }
     val marksByCode = remember(dashboard.marks) {
         dashboard.marks.associateBy { it.code.uppercase() }
     }
-    val historyByTerm = remember(dashboard.gradeHistory) {
-        dashboard.gradeHistory.groupBy { it.examMonth?.ifBlank { "Earlier" } ?: "Earlier" }
+    val historyTerms = remember(dashboard.gradeHistory) {
+        dashboard.gradeHistory
+            .groupBy { it.examMonth?.ifBlank { "Earlier" } ?: "Earlier" }
+            .toList()
+            .sortedWith(
+                compareByDescending<Pair<String, List<GradeCourse>>> { termSortValue(it.first) }
+                    .thenBy { it.first }
+            )
+    }
+    val historyGradeCounts = remember(dashboard.gradeHistory) {
+        dashboard.gradeHistory.toGradeCounts()
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1343,53 +1768,61 @@ private fun GradesScreen(
     ) {
         item {
             SimpleScreenHeader(
-                title = if (showingHistory) "Grade History" else "Grades",
-                subtitle = if (showingHistory) {
-                    "Review your academic performance."
-                } else {
-                    dashboard.selectedGradeSemester?.label ?: dashboard.selectedAttendanceSemester?.label ?: "Selected semester"
+                title = when (selectedGradeSection) {
+                    "History" -> "Grade History"
+                    else -> "Grades"
+                },
+                subtitle = when (selectedGradeSection) {
+                    "History" -> "Review your academic performance."
+                    else -> dashboard.selectedGradeSemester?.label ?: dashboard.selectedAttendanceSemester?.label ?: "Selected semester"
                 }
             )
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
-                    onClick = { showingHistory = false },
+                    onClick = { selectedGradeSection = "Current" },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (!showingHistory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = if (!showingHistory) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                        containerColor = if (selectedGradeSection == "Current") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (selectedGradeSection == "Current") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                     )
                 ) {
                     Text("Current")
                 }
                 Button(
-                    onClick = { showingHistory = true },
+                    onClick = { selectedGradeSection = "History" },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (showingHistory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = if (showingHistory) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                        containerColor = if (selectedGradeSection == "History") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (selectedGradeSection == "History") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                     )
                 ) {
                     Text("History")
                 }
             }
         }
-        if (showingHistory) {
+        if (selectedGradeSection == "History") {
             item {
                 CumulativeGpaCard(
                     cgpa = dashboard.cgpa ?: estimateTermGpa(dashboard.gradeHistory),
                     historyCount = dashboard.gradeHistory.size
                 )
             }
+            item {
+                GradeDistributionCard(gradeCounts = historyGradeCounts)
+            }
+            item {
+                CreditSummaryCard(courses = dashboard.gradeHistory, totalCredits = dashboard.totalCredits)
+            }
             if (dashboard.gradeHistory.isEmpty()) {
                 item {
                     EmptyState("No grade history found in the loaded VTOP data.")
                 }
             } else {
-                historyByTerm.forEach { (term, courses) ->
+                historyTerms.forEach { (term, courses) ->
                     item {
                         TermHeader(term = term, gpa = estimateTermGpa(courses))
                     }
@@ -1422,6 +1855,81 @@ private fun GradesScreen(
                         marks = marksByCode[course.code.uppercase()]
                     )
                 }
+            }
+        }
+        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+            item {
+                StartIoBannerAd()
+            }
+        }
+    }
+}
+
+@Composable
+private fun GradesSecurityScreen(
+    status: Int,
+    message: String?,
+    onUnlock: () -> Unit
+) {
+    val statusText = when (status) {
+        BiometricManager.BIOMETRIC_SUCCESS -> "Use fingerprint, face unlock, or your phone PIN/password to view grades."
+        BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> "Set up fingerprint, face unlock, or a phone PIN/password on this device."
+        BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> "Use your phone PIN/password to view grades."
+        BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> "Secure unlock is temporarily unavailable."
+        else -> "Secure unlock is unavailable right now."
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 26.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Surface(
+                modifier = Modifier.size(76.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+            Text(
+                text = "Unlock Grades",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = message ?: statusText,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                lineHeight = MaterialTheme.typography.bodyLarge.lineHeight
+            )
+            Button(
+                onClick = onUnlock,
+                enabled = status == BiometricManager.BIOMETRIC_SUCCESS,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp)
+            ) {
+                Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Unlock with biometrics or PIN")
             }
         }
     }
@@ -1551,9 +2059,14 @@ private fun TodayScheduleHeader(
 @Composable
 private fun ScheduleClassCard(
     classSlot: TimetableClass,
-    marks: CourseMarks?
+    marks: CourseMarks?,
+    selectedDate: LocalDate,
+    now: LocalDateTime
 ) {
     var showDetails by remember(classSlot.code, classSlot.time, classSlot.venue) { mutableStateOf(false) }
+    val completed = remember(classSlot.time, selectedDate, now) {
+        classSlot.isCompletedOn(selectedDate, now)
+    }
 
     if (showDetails) {
         AlertDialog(
@@ -1577,16 +2090,14 @@ private fun ScheduleClassCard(
         )
     }
 
-    Surface(
+    GlassPanel(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { showDetails = true },
         shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        contentPadding = PaddingValues(14.dp)
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
@@ -1631,7 +2142,10 @@ private fun ScheduleClassCard(
                         )
                     }
                 }
-                ClassStatusPill(text = classSlot.statusLabel())
+                ClassStatusPill(
+                    text = if (completed) "DONE" else classSlot.statusLabel(),
+                    completed = completed
+                )
             }
             Text(
                 text = classSlot.time,
@@ -1651,20 +2165,38 @@ private fun ScheduleClassCard(
 }
 
 @Composable
-private fun ClassStatusPill(text: String) {
+private fun ClassStatusPill(text: String, completed: Boolean = false) {
+    val containerColor = if (completed) SuccessGreen else MaterialTheme.colorScheme.onBackground
+    val contentColor = if (completed) Color.White else MaterialTheme.colorScheme.background
     Surface(
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.onBackground,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            color = MaterialTheme.colorScheme.background,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Black,
-            maxLines = 1
+        color = containerColor,
+        border = BorderStroke(
+            1.dp,
+            if (completed) SuccessGreen.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outline
         )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (completed) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(12.dp),
+                    tint = contentColor
+                )
+            }
+            Text(
+                text = text,
+                color = contentColor,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Black,
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -1710,13 +2242,12 @@ private fun GradeSummaryCard(courseCount: Int, gpa: String?) {
 @Composable
 private fun GradeCourseCard(course: GradeCourse, marks: CourseMarks?) {
     var expanded by remember(course.code) { mutableStateOf(false) }
-    Surface(
+    GlassPanel(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(),
         shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        contentPadding = PaddingValues(0.dp)
     ) {
         Column {
             Row(
@@ -1868,6 +2399,122 @@ private fun CumulativeGpaCard(cgpa: String?, historyCount: Int) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun GradeDistributionCard(gradeCounts: List<Pair<String, Int>>) {
+    AcademicCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("GRADE DISTRIBUTION", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Completed course grades", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                }
+                Text(
+                    text = gradeCounts.sumOf { it.second }.toString(),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Black
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                gradeCounts.chunked(3).forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        row.forEach { (grade, count) ->
+                            GradeCountTile(
+                                grade = grade,
+                                count = count,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        repeat(3 - row.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GradeCountTile(
+    grade: String,
+    count: Int,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(12.dp)
+    val active = count > 0
+    val glassTint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    Surface(
+        modifier = modifier,
+        shape = shape,
+        color = glassTint.copy(alpha = if (active) 0.13f else 0.28f),
+        border = BorderStroke(
+            1.dp,
+            if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.62f) else Color.White.copy(alpha = 0.16f)
+        )
+    ) {
+        Box(
+            modifier = Modifier.background(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = if (active) 0.18f else 0.10f),
+                        glassTint.copy(alpha = if (active) 0.10f else 0.05f),
+                        Color.White.copy(alpha = 0.03f)
+                    )
+                ),
+                shape = shape
+            )
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(grade, fontWeight = FontWeight.Black)
+                Text(
+                    count.toString(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreditSummaryCard(courses: List<GradeCourse>, totalCredits: String?) {
+    val fallbackTotalCredits = courses.sumOf { it.numericCredits() }.formatCredits()
+    val earnedCredits = courses.filter { it.isEarnedCredit() }.sumOf { it.numericCredits() }
+    val gradedCredits = courses.filter { it.grade.isNotBlank() && !it.grade.equals("P", true) }.sumOf { it.numericCredits() }
+    AcademicCard {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("CREDIT OVERVIEW", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                CreditMetric(label = "Total Credits", value = totalCredits?.ifBlank { null } ?: fallbackTotalCredits)
+                CreditMetric(label = "Earned", value = earnedCredits.formatCredits())
+                CreditMetric(label = "Graded", value = gradedCredits.formatCredits())
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreditMetric(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
     }
 }
 
@@ -2116,9 +2763,11 @@ private fun ProfileSettingsScreen(
     dashboard: DashboardSnapshot,
     darkMode: Boolean,
     appearanceTheme: AppearanceTheme,
+    accentColor: AccentColor,
     backgroundKeepAliveEnabled: Boolean,
     onToggleTheme: () -> Unit,
     onAppearanceThemeSelected: (AppearanceTheme) -> Unit,
+    onAccentColorSelected: (AccentColor) -> Unit,
     onBackgroundKeepAliveChanged: (Boolean) -> Unit,
     onOpenPortal: () -> Unit,
     onLogout: () -> Unit
@@ -2175,8 +2824,10 @@ private fun ProfileSettingsScreen(
                 AppearanceSettingsCard(
                     darkMode = darkMode,
                     selectedTheme = appearanceTheme,
+                    selectedAccent = accentColor,
                     onToggleTheme = onToggleTheme,
-                    onThemeSelected = onAppearanceThemeSelected
+                    onThemeSelected = onAppearanceThemeSelected,
+                    onAccentSelected = onAccentColorSelected
                 )
             }
             item {
@@ -2216,9 +2867,46 @@ private fun ProfileSettingsScreen(
                 )
             }
         }
+        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+            item {
+                StartIoBannerAd()
+            }
+        }
         item {
             AppVersionFooter()
         }
+    }
+}
+
+@Composable
+private fun StartIoBannerAd() {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = "Sponsored",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.48f)
+        )
+        AndroidView(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp),
+            factory = { context ->
+                FrameLayout(context).apply {
+                    addView(
+                        Banner(context),
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.WRAP_CONTENT,
+                            FrameLayout.LayoutParams.WRAP_CONTENT,
+                            Gravity.CENTER
+                        )
+                    )
+                }
+            }
+        )
     }
 }
 
@@ -2344,8 +3032,10 @@ private fun ProfileTabs(
 private fun AppearanceSettingsCard(
     darkMode: Boolean,
     selectedTheme: AppearanceTheme,
+    selectedAccent: AccentColor,
     onToggleTheme: () -> Unit,
-    onThemeSelected: (AppearanceTheme) -> Unit
+    onThemeSelected: (AppearanceTheme) -> Unit,
+    onAccentSelected: (AccentColor) -> Unit
 ) {
     AcademicCard(contentPadding = PaddingValues(18.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -2370,6 +3060,29 @@ private fun AppearanceSettingsCard(
                         accent = theme.previewAccent,
                         onClick = { onThemeSelected(theme) }
                     )
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Accent color",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(horizontal = 1.dp)
+                ) {
+                    items(
+                        items = AccentColor.entries,
+                        key = { it.storageValue }
+                    ) { accent ->
+                        AccentColorSwatch(
+                            accent = accent,
+                            selected = selectedAccent == accent,
+                            darkMode = darkMode,
+                            onClick = { onAccentSelected(accent) }
+                        )
+                    }
                 }
             }
         }
@@ -2690,10 +3403,23 @@ private fun SettingsSwitchRow(
         }
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = onCheckedChange,
+            colors = gammaSwitchColors()
         )
     }
 }
+
+@Composable
+private fun gammaSwitchColors() = SwitchDefaults.colors(
+    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+    checkedTrackColor = MaterialTheme.colorScheme.primary,
+    checkedBorderColor = MaterialTheme.colorScheme.primary,
+    checkedIconColor = MaterialTheme.colorScheme.primary,
+    uncheckedThumbColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
+    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+    uncheckedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+    uncheckedIconColor = MaterialTheme.colorScheme.surfaceVariant
+)
 
 @Composable
 private fun SettingsIconChip(icon: ImageVector) {
@@ -2722,27 +3448,39 @@ private fun ThemePreviewTile(
     accent: Color,
     onClick: () -> Unit
 ) {
+    val shape = RoundedCornerShape(8.dp)
     Surface(
         modifier = Modifier
             .size(width = 68.dp, height = 78.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(4.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (selected) 0.32f else 0.22f),
         border = BorderStroke(
             if (selected) 2.dp else 1.dp,
-            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+            if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.16f)
         )
     ) {
         Column(
-            modifier = Modifier.padding(8.dp),
+            modifier = Modifier
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = if (selected) 0.16f else 0.08f),
+                            accent.copy(alpha = if (selected) 0.08f else 0.04f),
+                            Color.White.copy(alpha = 0.02f)
+                        )
+                    ),
+                    shape = shape
+                )
+                .padding(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             Surface(
                 modifier = Modifier.size(width = 40.dp, height = 32.dp),
-                shape = RoundedCornerShape(2.dp),
-                color = background,
-                border = BorderStroke(1.dp, accent.copy(alpha = 0.45f))
+                shape = RoundedCornerShape(4.dp),
+                color = background.copy(alpha = 0.88f),
+                border = BorderStroke(1.dp, accent.copy(alpha = 0.62f))
             ) {
                 Box(
                     modifier = Modifier
@@ -2770,18 +3508,58 @@ private fun ThemePreviewTile(
 }
 
 @Composable
+private fun AccentColorSwatch(
+    accent: AccentColor,
+    selected: Boolean,
+    darkMode: Boolean,
+    onClick: () -> Unit
+) {
+    val accentColor = accent.primary(darkMode)
+    GlassPanel(
+        modifier = Modifier
+            .size(width = 74.dp, height = 58.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(8.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 7.dp),
+        baseTint = accentColor.copy(alpha = if (selected) 0.42f else 0.22f),
+        borderTint = if (selected) accentColor else MaterialTheme.colorScheme.primary
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Surface(
+                modifier = Modifier.size(20.dp),
+                shape = CircleShape,
+                color = accentColor,
+                border = BorderStroke(1.dp, accentColor.copy(alpha = 0.55f))
+            ) {}
+            Text(
+                text = accent.label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (selected) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = if (selected) FontWeight.Black else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
 private fun LogoutSettingsButton(
     displayName: String,
     onLogout: () -> Unit
 ) {
-    Surface(
+    GlassPanel(
         modifier = Modifier
             .fillMaxWidth()
             .height(54.dp)
             .clickable(onClick = onLogout),
         shape = RoundedCornerShape(4.dp),
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.65f))
+        contentPadding = PaddingValues(0.dp),
+        baseTint = MaterialTheme.colorScheme.error.copy(alpha = 0.18f),
+        borderTint = MaterialTheme.colorScheme.error
     ) {
         Row(
             modifier = Modifier.fillMaxSize(),
@@ -2835,7 +3613,8 @@ private fun BackgroundKeepAliveCard(
             }
             Switch(
                 checked = enabled,
-                onCheckedChange = onEnabledChange
+                onCheckedChange = onEnabledChange,
+                colors = gammaSwitchColors()
             )
         }
     }
@@ -2930,9 +3709,11 @@ private fun AttendanceCourseCard(
 private fun NextClassCard(dashboard: DashboardSnapshot) {
     var now by remember { mutableStateOf(LocalDateTime.now()) }
     var showDetails by remember { mutableStateOf(false) }
-    val nextClass = remember(dashboard, now) {
-        dashboard.resolveNextClassDisplay(now)
+    val cardState = remember(dashboard, now) {
+        dashboard.resolveNextClassCardState(now)
     }
+    val activeClass = cardState.activeClass
+    val nextClass = cardState.nextClass
     val facultyDisplayName = nextClass?.faculty?.toDisplayNameCase().orEmpty()
 
     LaunchedEffect(Unit) {
@@ -2966,14 +3747,13 @@ private fun NextClassCard(dashboard: DashboardSnapshot) {
         )
     }
 
-    Card(
+    GlassPanel(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = nextClass != null) { showDetails = true }
             .animateContentSize(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        contentPadding = PaddingValues(0.dp)
     ) {
         if (nextClass == null) {
             EmptyState("No upcoming class found on the loaded page.")
@@ -2982,6 +3762,9 @@ private fun NextClassCard(dashboard: DashboardSnapshot) {
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (activeClass != null && activeClass != nextClass) {
+                    ActiveClassStrip(activeClass = activeClass)
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -3018,12 +3801,14 @@ private fun NextClassCard(dashboard: DashboardSnapshot) {
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Black
                 )
-                LinearProgressIndicator(
-                    progress = { nextClass.progress },
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
-                )
+                if (activeClass == null || activeClass == nextClass) {
+                    LinearProgressIndicator(
+                        progress = { nextClass.progress },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                }
                 NextClassInfoGrid(
                     venue = nextClass.venue,
                     faculty = facultyDisplayName.ifBlank { "Check VTOP" },
@@ -3031,6 +3816,50 @@ private fun NextClassCard(dashboard: DashboardSnapshot) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ActiveClassStrip(activeClass: NextClassDisplay) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                StatusChip(text = activeClass.code ?: activeClass.slot ?: "LIVE")
+                Text(
+                    text = activeClass.name,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Text(
+                text = activeClass.countdownLabel,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Black,
+                maxLines = 1
+            )
+        }
+        LinearProgressIndicator(
+            progress = { activeClass.progress },
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
     }
 }
 
@@ -3216,14 +4045,84 @@ private fun AcademicCard(
     contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable () -> Unit
 ) {
-    Card(
+    GlassPanel(
         modifier = modifier,
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        contentPadding = contentPadding,
+        content = content
+    )
+}
+
+@Composable
+private fun GlassPanel(
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(16.dp),
+    contentPadding: PaddingValues = PaddingValues(16.dp),
+    baseTint: Color = MaterialTheme.colorScheme.surface,
+    borderTint: Color = MaterialTheme.colorScheme.primary,
+    content: @Composable () -> Unit
+) {
+    val transition = rememberInfiniteTransition(label = "glass-panel")
+    val sheenPhase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = (PI * 2).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 7200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "glass-sheen"
+    )
+    val pulse by transition.animateFloat(
+        initialValue = 0.72f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3400, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glass-pulse"
+    )
+    val accent = MaterialTheme.colorScheme.primary
+    val driftX = sin(sheenPhase) * 260f
+    val driftY = cos(sheenPhase) * 90f
+    val start = Offset(x = -160f + driftX, y = -180f + driftY)
+    val end = Offset(x = 460f + driftX, y = 520f + driftY)
+
+    Surface(
+        modifier = modifier,
+        shape = shape,
+        color = baseTint.copy(alpha = 0.48f),
+        border = BorderStroke(
+            1.dp,
+            Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.34f * pulse),
+                    borderTint.copy(alpha = 0.54f * pulse),
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)
+                ),
+                start = Offset.Zero,
+                end = Offset.Infinite
+            )
+        ),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
-        Box(modifier = Modifier.padding(contentPadding)) {
+        Box(
+            modifier = Modifier
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.11f * pulse),
+                            accent.copy(alpha = 0.10f * pulse),
+                            Color.White.copy(alpha = 0.035f),
+                            baseTint.copy(alpha = 0.16f)
+                        ),
+                        start = start,
+                        end = end
+                    ),
+                    shape = shape
+                )
+                .padding(contentPadding)
+        ) {
             content()
         }
     }
@@ -3244,13 +4143,13 @@ private fun DetailRow(label: String, value: String) {
 
 @Composable
 private fun EmptyState(text: String) {
-    Surface(
+    GlassPanel(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        contentPadding = PaddingValues(14.dp),
+        baseTint = MaterialTheme.colorScheme.surfaceVariant
     ) {
-        Text(text, modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -3268,6 +4167,8 @@ private fun FullPortalScreen(
         PortalCaptureBridge(onPortalHtml)
     }
     val webView = remember { mutableStateOf<WebView?>(null) }
+    var loadingPortal by remember { mutableStateOf(true) }
+    var portalError by remember { mutableStateOf<String?>(null) }
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -3279,7 +4180,23 @@ private fun FullPortalScreen(
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView, url: String) {
                             super.onPageFinished(view, url)
+                            loadingPortal = false
+                            portalError = null
                             view.captureAfterLoad()
+                            view.activateVtopShellIfBlank()
+                        }
+
+                        override fun onReceivedError(
+                            view: WebView,
+                            request: WebResourceRequest,
+                            error: WebResourceError
+                        ) {
+                            super.onReceivedError(view, request, error)
+                            if (request.isForMainFrame) {
+                                loadingPortal = false
+                                portalError = error.description?.toString()
+                                    ?: "VTOP could not be loaded."
+                            }
                         }
                     }
                     settings.javaScriptEnabled = true
@@ -3288,32 +4205,72 @@ private fun FullPortalScreen(
                     settings.loadsImagesAutomatically = true
                     settings.useWideViewPort = true
                     settings.loadWithOverviewMode = true
+                    settings.builtInZoomControls = true
+                    settings.displayZoomControls = false
                     settings.javaScriptCanOpenWindowsAutomatically = true
                     settings.setSupportMultipleWindows(false)
                     settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                    CookieManager.getInstance().apply {
-                        setAcceptCookie(true)
-                        setAcceptThirdPartyCookies(createdWebView, true)
-                        cookieHeaders.forEach { cookie ->
-                            setCookie("https://vtop.vitbhopal.ac.in", cookie)
-                            setCookie(portalUrl, cookie)
-                        }
-                        flush()
-                    }
-                    loadUrl(portalUrl)
+                    settings.userAgentString = vtopDesktopUserAgent
+                    loadingPortal = true
+                    portalError = null
+                    syncVtopCookiesAndLoad(portalUrl, cookieHeaders)
                 }.also { webView.value = it }
             },
             update = { view ->
-                CookieManager.getInstance().apply {
-                    cookieHeaders.forEach { cookie ->
-                        setCookie("https://vtop.vitbhopal.ac.in", cookie)
-                        setCookie(portalUrl, cookie)
-                    }
-                    flush()
+                view.syncVtopCookies(cookieHeaders)
+                if (view.url.isNullOrBlank()) {
+                    loadingPortal = true
+                    portalError = null
+                    view.syncVtopCookiesAndLoad(portalUrl, cookieHeaders)
                 }
-                if (view.url.isNullOrBlank()) view.loadUrl(portalUrl)
             }
         )
+        if (loadingPortal) {
+            Surface(
+                modifier = Modifier.align(Alignment.Center),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                    Text("Loading VTOP")
+                }
+            }
+        }
+        portalError?.let { error ->
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(18.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("VTOP did not load", fontWeight = FontWeight.Black)
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Button(onClick = {
+                        loadingPortal = true
+                        portalError = null
+                        webView.value?.syncVtopCookiesAndLoad(portalUrl, cookieHeaders)
+                    }) {
+                        Text("Retry")
+                    }
+                }
+            }
+        }
         Row(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -3323,6 +4280,11 @@ private fun FullPortalScreen(
         ) {
             FloatingActionButton(onClick = { webView.value?.loadUrl(onHomeRequested()) }) {
                 Icon(Icons.Default.Home, contentDescription = "VTOP home")
+            }
+            FloatingActionButton(onClick = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(portalUrl)))
+            }) {
+                Icon(Icons.Default.OpenInNew, contentDescription = "Open VTOP in browser")
             }
             FloatingActionButton(onClick = { webView.value?.reload() }) {
                 Icon(Icons.Default.Refresh, contentDescription = "Reload VTOP")
@@ -3358,6 +4320,142 @@ private fun WebView.captureAfterLoad() {
     }, 1200)
 }
 
+private fun WebView.activateVtopShellIfBlank() {
+    Handler(Looper.getMainLooper()).postDelayed({
+        evaluateJavascript(
+            """
+                (function() {
+                  if (window.__gammaVtopShellActivated) return "already";
+
+                  function isVisible(element) {
+                    if (!element) return false;
+                    var style = window.getComputedStyle(element);
+                    var rect = element.getBoundingClientRect();
+                    return style.display !== "none" &&
+                      style.visibility !== "hidden" &&
+                      rect.width > 0 &&
+                      rect.height > 0;
+                  }
+
+                  function visibleTextLength() {
+                    var candidates = [
+                      "#page-content-wrapper",
+                      "#pageContent",
+                      "#content",
+                      "#main-content",
+                      ".page-content",
+                      ".content-wrapper",
+                      "main"
+                    ];
+                    var text = "";
+                    candidates.forEach(function(selector) {
+                      var element = document.querySelector(selector);
+                      if (isVisible(element)) text += " " + element.innerText;
+                    });
+                    if (!text.trim()) text = document.body.innerText || "";
+                    text = text
+                      .replace(/VIT/g, "")
+                      .replace(/Bhopal Campus/g, "")
+                      .replace(/Home/g, "")
+                      .replace(/Quick Links/g, "")
+                      .replace(/\s+/g, " ")
+                      .trim();
+                    return text.length;
+                  }
+
+                  if (visibleTextLength() > 120) return "content-visible";
+                  window.__gammaVtopShellActivated = true;
+
+                  function clickElement(element) {
+                    if (!element || !isVisible(element)) return false;
+                    element.dispatchEvent(new MouseEvent("click", {
+                      bubbles: true,
+                      cancelable: true,
+                      view: window
+                    }));
+                    if (typeof element.click === "function") element.click();
+                    return true;
+                  }
+
+                  function closestClickable(element) {
+                    while (element && element !== document.body) {
+                      var tag = (element.tagName || "").toLowerCase();
+                      if (tag === "a" || tag === "button" || element.getAttribute("onclick")) return element;
+                      element = element.parentElement;
+                    }
+                    return null;
+                  }
+
+                  var homeIcon = document.querySelector(
+                    ".fa-home, .bi-house, .bi-house-door, [class*='home'], [title*='Home' i], [aria-label*='Home' i]"
+                  );
+                  if (clickElement(closestClickable(homeIcon))) return "home-clicked";
+
+                  var menuIcons = Array.prototype.slice.call(document.querySelectorAll(
+                    ".fa-bars, .bi-list, [class*='menu'], [data-bs-toggle='offcanvas'], [aria-controls*='menu' i]"
+                  ));
+                  for (var i = 0; i < menuIcons.length; i++) {
+                    if (clickElement(closestClickable(menuIcons[i]))) return "menu-clicked";
+                  }
+
+                  var clickable = Array.prototype.slice.call(document.querySelectorAll("a, button"))
+                    .filter(function(element) {
+                      var label = (element.innerText || element.getAttribute("title") || element.getAttribute("aria-label") || "").toLowerCase();
+                      return label.indexOf("home") >= 0 || label.indexOf("menu") >= 0 || label.indexOf("quick") >= 0;
+                    })[0];
+                  if (clickElement(clickable)) return "label-clicked";
+
+                  return "blank-no-target";
+                })();
+            """.trimIndent(),
+            null
+        )
+    }, 1800)
+}
+
+private fun WebView.syncVtopCookies(cookieHeaders: List<String>) {
+    CookieManager.getInstance().apply {
+        setAcceptCookie(true)
+        setAcceptThirdPartyCookies(this@syncVtopCookies, true)
+        cookieHeaders.forEach { cookie ->
+            setCookie(vtopCookieUrl, cookie)
+        }
+        flush()
+    }
+}
+
+private fun WebView.syncVtopCookiesAndLoad(
+    url: String,
+    cookieHeaders: List<String>
+) {
+    val cookieManager = CookieManager.getInstance()
+    cookieManager.setAcceptCookie(true)
+    cookieManager.setAcceptThirdPartyCookies(this, true)
+
+    if (cookieHeaders.isEmpty()) {
+        loadUrl(url)
+        return
+    }
+
+    var pendingCookies = cookieHeaders.size
+    cookieHeaders.forEach { cookie ->
+        cookieManager.setCookie(vtopCookieUrl, cookie) {
+            pendingCookies -= 1
+            if (pendingCookies == 0) {
+                cookieManager.flush()
+                Handler(Looper.getMainLooper()).post {
+                    loadUrl(url)
+                }
+            }
+        }
+    }
+}
+
+private const val vtopCookieUrl = "https://vtop.vitbhopal.ac.in"
+private const val vtopDesktopUserAgent =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+
 private suspend fun clearWebViewCookies() {
     suspendCancellableCoroutine { continuation ->
         Handler(Looper.getMainLooper()).post {
@@ -3376,7 +4474,7 @@ private fun String.toBitmap() = runCatching {
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
 }.getOrNull()
 
-private fun DashboardSnapshot.resolveNextClassDisplay(now: LocalDateTime): NextClassDisplay? {
+private fun DashboardSnapshot.resolveNextClassCardState(now: LocalDateTime): NextClassCardState {
     val entries = timetable
         .flatMap { classSlot -> classSlot.timelineEntriesFrom(now) }
         .sortedBy { it.start }
@@ -3384,29 +4482,29 @@ private fun DashboardSnapshot.resolveNextClassDisplay(now: LocalDateTime): NextC
     val activeEntry = entries.firstOrNull { entry ->
         !now.isBefore(entry.start) && now.isBefore(entry.end)
     }
-    if (activeEntry != null) {
-        return activeEntry.toDisplay(
-            dashboard = this,
-            now = now,
-            statusLabel = "ONGOING",
-            targetTime = activeEntry.end,
-            progress = activeEntry.progress(now)
-        )
-    }
+    val activeClass = activeEntry?.toDisplay(
+        dashboard = this,
+        now = now,
+        statusLabel = "ONGOING",
+        targetTime = activeEntry.end,
+        progress = activeEntry.progress(now)
+    )
 
-    val upcomingEntry = entries.firstOrNull { entry -> entry.start.isAfter(now) }
-    if (upcomingEntry != null) {
+    val upcomingEntry = entries.firstOrNull { entry ->
+        entry.start.isAfter(now) && entry != activeEntry
+    }
+    val upcomingClass = if (upcomingEntry != null) {
         val statusLabel = if (upcomingEntry.start.toLocalDate() == now.toLocalDate()) {
-            "STARTS"
+            "NEXT"
         } else {
             "TOMORROW"
         }
-        val countdownLabel = if (statusLabel == "TOMORROW") {
+        val countdownLabel = if (statusLabel == "TOMORROW" && activeEntry == null) {
             "Classes for today are over"
         } else {
             Duration.between(now, upcomingEntry.start).formatCountdown("away")
         }
-        return upcomingEntry.toDisplay(
+        upcomingEntry.toDisplay(
             dashboard = this,
             now = now,
             statusLabel = statusLabel,
@@ -3414,9 +4512,8 @@ private fun DashboardSnapshot.resolveNextClassDisplay(now: LocalDateTime): NextC
             progress = 0f,
             countdownLabel = countdownLabel
         )
-    }
-
-    return nextClass?.let { fallback ->
+    } else {
+        nextClass?.let { fallback ->
         NextClassDisplay(
             name = fallback.name,
             venue = fallback.venue,
@@ -3432,7 +4529,13 @@ private fun DashboardSnapshot.resolveNextClassDisplay(now: LocalDateTime): NextC
             countdownLabel = "Check VTOP",
             progress = 0f
         )
+        }
     }
+
+    return NextClassCardState(
+        activeClass = activeClass,
+        nextClass = upcomingClass ?: activeClass
+    )
 }
 
 private fun TimetableClass.timelineEntriesFrom(now: LocalDateTime): List<ClassTimelineEntry> {
@@ -3586,6 +4689,15 @@ private fun TimetableClass.matchesDay(dayKey: String): Boolean {
     return normalizedDay.contains(dayKey) || normalizedDay.contains(dayKey.take(3))
 }
 
+private fun TimetableClass.isCompletedOn(selectedDate: LocalDate, now: LocalDateTime): Boolean {
+    val endTime = time.toTimeRange()?.second ?: return false
+    return when {
+        selectedDate.isBefore(now.toLocalDate()) -> true
+        selectedDate.isAfter(now.toLocalDate()) -> false
+        else -> now.toLocalTime().isAfter(endTime) || now.toLocalTime() == endTime
+    }
+}
+
 private fun TimetableClass.statusLabel(): String =
     if (time.isBlank()) "CLASS" else "NEXT"
 
@@ -3599,6 +4711,25 @@ private fun GradeCourse.displayCreditsLabel(): String {
         ?: return "Credits"
     return "$creditsValue Credits"
 }
+
+private fun GradeCourse.numericCredits(): Double =
+    Regex("\\d+(?:\\.\\d+)?")
+        .find(credits)
+        ?.value
+        ?.toDoubleOrNull()
+        ?: 0.0
+
+private fun GradeCourse.isEarnedCredit(): Boolean {
+    val normalized = grade.trim().uppercase(Locale.US)
+    return normalized.isNotBlank() && normalized !in setOf("F", "N", "N1", "N2", "N3", "N4")
+}
+
+private fun Double.formatCredits(): String =
+    if (this % 1.0 == 0.0) {
+        toInt().toString()
+    } else {
+        String.format(Locale.US, "%.1f", this)
+    }
 
 private fun TextStyle.academic(): TextStyle = copy(fontFamily = AcademicFont)
 
@@ -3621,4 +4752,40 @@ private fun estimateTermGpa(courses: List<GradeCourse>): String? {
     if (credits == 0.0) return null
     val gpa = weighted.sumOf { (credit, points) -> credit * points } / credits
     return String.format(java.util.Locale.US, "%.2f", gpa)
+}
+
+private fun List<GradeCourse>.toGradeCounts(): List<Pair<String, Int>> {
+    val standardOrder = listOf("S", "A", "B", "C", "D", "E", "F", "P", "N")
+    val counts = groupingBy { course ->
+        course.grade.trim().uppercase(Locale.US).ifBlank { "--" }
+    }.eachCount()
+    val extraGrades = counts.keys
+        .filterNot { it in standardOrder }
+        .sorted()
+    return (standardOrder + extraGrades).map { grade -> grade to (counts[grade] ?: 0) }
+}
+
+private fun termSortValue(term: String): Int {
+    val normalized = term.lowercase(Locale.US)
+    val year = Regex("""20\d{2}""")
+        .findAll(normalized)
+        .mapNotNull { it.value.toIntOrNull() }
+        .maxOrNull()
+        ?: return 0
+    val monthRank = when {
+        normalized.contains("december") || normalized.contains(" dec ") || normalized.contains("winter") -> 12
+        normalized.contains("november") || normalized.contains(" nov ") -> 11
+        normalized.contains("october") || normalized.contains(" oct ") -> 10
+        normalized.contains("september") || normalized.contains(" sept ") || normalized.contains(" sep ") || normalized.contains("fall") || normalized.contains("autumn") -> 9
+        normalized.contains("august") || normalized.contains(" aug ") -> 8
+        normalized.contains("july") || normalized.contains(" jul ") -> 7
+        normalized.contains("june") || normalized.contains(" jun ") -> 6
+        normalized.contains("may") || normalized.contains("summer") -> 5
+        normalized.contains("april") || normalized.contains(" apr ") -> 4
+        normalized.contains("march") || normalized.contains(" mar ") -> 3
+        normalized.contains("february") || normalized.contains(" feb ") -> 2
+        normalized.contains("january") || normalized.contains(" jan ") || normalized.contains("spring") -> 1
+        else -> 0
+    }
+    return year * 100 + monthRank
 }

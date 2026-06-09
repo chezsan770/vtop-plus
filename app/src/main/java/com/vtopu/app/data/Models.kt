@@ -124,6 +124,7 @@ data class DashboardSnapshot(
     val marks: List<CourseMarks> = emptyList(),
     val gpa: String? = null,
     val cgpa: String? = null,
+    val totalCredits: String? = null,
     val attendanceSemesters: List<SemesterOption> = emptyList(),
     val timetableSemesters: List<SemesterOption> = emptyList(),
     val gradeSemesters: List<SemesterOption> = emptyList(),

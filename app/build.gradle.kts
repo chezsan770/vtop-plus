@@ -37,6 +37,16 @@ android {
             "SUPABASE_ANON_KEY",
             buildConfigString(localProperties.getProperty("SUPABASE_ANON_KEY", ""))
         )
+        buildConfigField(
+            "String",
+            "STARTAPP_APP_ID",
+            buildConfigString(
+                localProperties.getProperty(
+                    "STARTAPP_APP_ID",
+                    System.getenv("STARTAPP_APP_ID") ?: ""
+                )
+            )
+        )
     }
 
     buildFeatures {
@@ -48,6 +58,7 @@ android {
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.biometric)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.material.icons.extended)
@@ -58,6 +69,7 @@ dependencies {
     implementation(libs.jsoup)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
+    implementation(libs.startio.inapp.sdk)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
