@@ -213,6 +213,7 @@ private val AcademicFont = FontFamily.Serif
 private const val KEEP_ALIVE_INTERVAL_MILLIS = 12L * 60L * 1000L
 private const val APP_USAGE_HEARTBEAT_INTERVAL_MILLIS = 60L * 1000L
 private const val FEATURE_REQUEST_COOLDOWN_MILLIS = 30L * 1000L
+private const val RELEASES_BASE_URL = "https://github.com/chezsan770/vtop-plus/releases"
 private const val GRADES_AUTHENTICATORS =
     BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
 private val AcademicTypography = Typography().let { base ->
@@ -624,6 +625,16 @@ private fun VtopApp(
     val appUsageRepository = remember { AppUsageRepository() }
     val appUpdateRepository = remember { AppUpdateRepository() }
     val activity = remember(context) { context.findMainActivity() }
+    val openExternalUrl: (String) -> Unit = { url ->
+        runCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }.onFailure {
+            message = "Could not open the link."
+        }
+    }
     val openPortalWindow: () -> Unit = {
         context.startActivity(PortalActivity.createIntent(context))
     }
@@ -714,6 +725,33 @@ private fun VtopApp(
                 enableBackgroundKeepAlive()
             }
         }
+    }
+    val checkForUpdates: () -> Unit = {
+        scope.launch {
+            message = "Checking for updates..."
+            val latestUpdate = appUpdateRepository.fetchLatestUpdate().getOrNull()
+            when {
+                latestUpdate == null -> {
+                    message = null
+                    Toast.makeText(context, "Gamma is up to date.", Toast.LENGTH_SHORT).show()
+                }
+                latestUpdate.versionCode > BuildConfig.VERSION_CODE -> {
+                    message = null
+                    availableUpdate = latestUpdate
+                }
+                else -> {
+                    message = null
+                    Toast.makeText(
+                        context,
+                        "Gamma v${BuildConfig.VERSION_NAME} is up to date.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+    val openCurrentChangelog: () -> Unit = {
+        openExternalUrl("$RELEASES_BASE_URL/tag/v${BuildConfig.VERSION_NAME}")
     }
 
     LaunchedEffect(Unit) {
@@ -933,6 +971,8 @@ private fun VtopApp(
                             onAccentColorSelected = onAccentColorSelected,
                             onBackgroundKeepAliveChanged = setBackgroundKeepAlive,
                             onOpenPortal = openPortalWindow,
+                            onCheckUpdates = checkForUpdates,
+                            onOpenChangelog = openCurrentChangelog,
                             onLogout = logout
                         )
                     }
@@ -2771,6 +2811,8 @@ private fun ProfileSettingsScreen(
     onAccentColorSelected: (AccentColor) -> Unit,
     onBackgroundKeepAliveChanged: (Boolean) -> Unit,
     onOpenPortal: () -> Unit,
+    onCheckUpdates: () -> Unit,
+    onOpenChangelog: () -> Unit,
     onLogout: () -> Unit
 ) {
     var selectedSection by remember { mutableStateOf("Settings") }
@@ -2810,7 +2852,8 @@ private fun ProfileSettingsScreen(
         item {
             ProfileHeader(
                 displayName = displayName,
-                registrationNumber = registrationNumber
+                registrationNumber = registrationNumber,
+                onOpenChangelog = onOpenChangelog
             )
         }
         item {
@@ -2849,6 +2892,12 @@ private fun ProfileSettingsScreen(
             }
             item {
                 PortalSettingsCard(onOpenPortal = onOpenPortal)
+            }
+            item {
+                UpdateSettingsCard(
+                    onCheckUpdates = onCheckUpdates,
+                    onOpenChangelog = onOpenChangelog
+                )
             }
             item {
                 LogoutSettingsButton(
@@ -2927,7 +2976,8 @@ private fun AppVersionFooter() {
 @Composable
 private fun ProfileHeader(
     displayName: String,
-    registrationNumber: String
+    registrationNumber: String,
+    onOpenChangelog: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Row(
@@ -2941,11 +2991,13 @@ private fun ProfileHeader(
                     .height(40.dp),
                 color = MaterialTheme.colorScheme.onBackground
             )
-            Icon(
-                Icons.Default.Refresh,
-                contentDescription = "Updates",
-                tint = MaterialTheme.colorScheme.onBackground
-            )
+            IconButton(onClick = onOpenChangelog) {
+                Icon(
+                    Icons.Default.EventNote,
+                    contentDescription = "Open changelog",
+                    tint = MaterialTheme.colorScheme.onBackground
+                )
+            }
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
@@ -3352,6 +3404,54 @@ private fun PortalSettingsCard(onOpenPortal: () -> Unit) {
                 }
             }
             Icon(Icons.Default.ChevronRight, contentDescription = "Open Full VTOP")
+        }
+    }
+}
+
+@Composable
+private fun UpdateSettingsCard(
+    onCheckUpdates: () -> Unit,
+    onOpenChangelog: () -> Unit
+) {
+    AcademicCard(contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SettingsIconChip(icon = Icons.Default.Refresh)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("App Updates", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                        Text(
+                            "Installed Gamma v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                IconButton(onClick = onOpenChangelog) {
+                    Icon(Icons.Default.EventNote, contentDescription = "Open changelog")
+                }
+            }
+            Button(
+                onClick = onCheckUpdates,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Check for Updates")
+            }
         }
     }
 }
