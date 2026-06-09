@@ -1,6 +1,8 @@
 package com.vtopu.app
 
 import android.Manifest
+import android.app.Activity
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -11,6 +13,7 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Base64
 import android.view.Gravity
 import android.widget.Toast
@@ -152,6 +155,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
 import com.vtopu.app.data.AttendanceCourse
 import com.vtopu.app.data.AppSettings
@@ -175,14 +179,16 @@ import com.vtopu.app.data.SessionKeepAliveResult
 import com.vtopu.app.data.TimetableClass
 import com.vtopu.app.data.VtopRepository
 import com.startapp.sdk.ads.banner.Banner
-import com.startapp.sdk.adsbase.Ad
-import com.startapp.sdk.adsbase.StartAppAd
-import com.startapp.sdk.adsbase.StartAppAd.AdMode
 import com.startapp.sdk.adsbase.StartAppSDK
-import com.startapp.sdk.adsbase.adlisteners.AdEventListener
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.File
+import java.io.FileOutputStream
 import java.time.Instant
 import java.time.DayOfWeek
 import java.time.Duration
@@ -216,6 +222,7 @@ private const val FEATURE_REQUEST_COOLDOWN_MILLIS = 30L * 1000L
 private const val RELEASES_BASE_URL = "https://github.com/chezsan770/vtop-plus/releases"
 private const val GRADES_AUTHENTICATORS =
     BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+private val UpdateDownloadClient = OkHttpClient()
 private val AcademicTypography = Typography().let { base ->
     Typography(
         displayLarge = base.displayLarge.academic(),
@@ -360,6 +367,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+            StartAppSDK.setUserConsent(this, "pas", System.currentTimeMillis(), false)
             StartAppSDK.init(this, BuildConfig.STARTAPP_APP_ID, false)
         }
         setContent {
@@ -393,56 +401,6 @@ class MainActivity : FragmentActivity() {
                 )
             }
         }
-    }
-
-    fun showKeepAliveRewardedAd(
-        onRewardEarned: () -> Unit,
-        onUnavailable: () -> Unit
-    ) {
-        if (BuildConfig.STARTAPP_APP_ID.isBlank()) {
-            onRewardEarned()
-            return
-        }
-
-        val rewardedAd = StartAppAd(this)
-        var rewardEarned = false
-        var callbackCompleted = false
-        val mainHandler = Handler(Looper.getMainLooper())
-        val completeAsUnavailable = {
-            if (!callbackCompleted && !rewardEarned) {
-                callbackCompleted = true
-                onUnavailable()
-            }
-        }
-        val noFillTimeout = Runnable {
-            runOnUiThread(completeAsUnavailable)
-        }
-
-        rewardedAd.setVideoListener {
-            rewardEarned = true
-            if (!callbackCompleted) {
-                callbackCompleted = true
-                mainHandler.removeCallbacks(noFillTimeout)
-                runOnUiThread(onRewardEarned)
-            }
-        }
-        mainHandler.postDelayed(noFillTimeout, 8_000L)
-        rewardedAd.loadAd(
-            AdMode.REWARDED_VIDEO,
-            object : AdEventListener {
-                override fun onReceiveAd(ad: Ad) {
-                    mainHandler.removeCallbacks(noFillTimeout)
-                    if (!rewardedAd.showAd()) {
-                        runOnUiThread(completeAsUnavailable)
-                    }
-                }
-
-                override fun onFailedToReceiveAd(ad: Ad?) {
-                    mainHandler.removeCallbacks(noFillTimeout)
-                    runOnUiThread(completeAsUnavailable)
-                }
-            }
-        )
     }
 
     fun showGradesBiometricPrompt(
@@ -624,7 +582,6 @@ private fun VtopApp(
     val appSettings = remember(context) { AppSettings(context.applicationContext) }
     val appUsageRepository = remember { AppUsageRepository() }
     val appUpdateRepository = remember { AppUpdateRepository() }
-    val activity = remember(context) { context.findMainActivity() }
     val openExternalUrl: (String) -> Unit = { url ->
         runCatching {
             context.startActivity(
@@ -643,13 +600,30 @@ private fun VtopApp(
     var showLanding by remember { mutableStateOf(!appSettings.hasSeenLanding) }
     var pendingSaveCredentials by remember { mutableStateOf<SavedCredentials?>(null) }
     var availableUpdate by remember { mutableStateOf<AppUpdate?>(null) }
+    var updateDownloading by remember { mutableStateOf(false) }
+    val startKeepAliveSafely: () -> Boolean = {
+        runCatching {
+            VtopKeepAliveService.start(context.applicationContext)
+        }.onFailure {
+            message = "Couldn't enable VTOP Online. Please try again after reopening the app."
+            Toast.makeText(
+                context,
+                "Couldn't enable VTOP Online.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }.isSuccess
+    }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            appSettings.backgroundKeepAliveEnabled = true
-            backgroundKeepAliveEnabled = true
-            if (dashboard != null) VtopKeepAliveService.start(context.applicationContext)
+            if (dashboard != null && !startKeepAliveSafely()) {
+                appSettings.backgroundKeepAliveEnabled = false
+                backgroundKeepAliveEnabled = false
+            } else {
+                appSettings.backgroundKeepAliveEnabled = true
+                backgroundKeepAliveEnabled = true
+            }
         } else {
             appSettings.backgroundKeepAliveEnabled = false
             backgroundKeepAliveEnabled = false
@@ -691,9 +665,13 @@ private fun VtopApp(
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            appSettings.backgroundKeepAliveEnabled = true
-            backgroundKeepAliveEnabled = true
-            VtopKeepAliveService.start(context.applicationContext)
+            if (startKeepAliveSafely()) {
+                appSettings.backgroundKeepAliveEnabled = true
+                backgroundKeepAliveEnabled = true
+            } else {
+                appSettings.backgroundKeepAliveEnabled = false
+                backgroundKeepAliveEnabled = false
+            }
         }
     }
     val setBackgroundKeepAlive: (Boolean) -> Unit = { enabled ->
@@ -701,29 +679,10 @@ private fun VtopApp(
             appSettings.backgroundKeepAliveEnabled = false
             backgroundKeepAliveEnabled = false
             VtopKeepAliveService.stop(context.applicationContext)
-        } else if (BuildConfig.STARTAPP_APP_ID.isBlank()) {
-            message = "Ads are not configured in this build, so VTOP Online was enabled directly."
-            Toast.makeText(context, "VTOP Online enabled for this build.", Toast.LENGTH_SHORT).show()
-            enableBackgroundKeepAlive()
         } else {
-            message = "Watch a short rewarded ad to enable VTOP Online."
-            Toast.makeText(context, "Watch a short ad to enable VTOP Online.", Toast.LENGTH_SHORT).show()
-            activity?.showKeepAliveRewardedAd(
-                onRewardEarned = {
-                    message = "VTOP Online enabled. Thanks for supporting Gamma."
-                    Toast.makeText(context, "VTOP Online enabled.", Toast.LENGTH_SHORT).show()
-                    enableBackgroundKeepAlive()
-                },
-                onUnavailable = {
-                    message = "Reward ad was not available, so VTOP Online was enabled directly."
-                    Toast.makeText(context, "No reward ad available. VTOP Online enabled.", Toast.LENGTH_SHORT).show()
-                    enableBackgroundKeepAlive()
-                }
-            ) ?: run {
-                message = "Reward ad could not be opened, so VTOP Online was enabled directly."
-                Toast.makeText(context, "VTOP Online enabled.", Toast.LENGTH_SHORT).show()
-                enableBackgroundKeepAlive()
-            }
+            message = "VTOP Online enabled."
+            Toast.makeText(context, "VTOP Online enabled.", Toast.LENGTH_SHORT).show()
+            enableBackgroundKeepAlive()
         }
     }
     val checkForUpdates: () -> Unit = {
@@ -775,7 +734,10 @@ private fun VtopApp(
 
     LaunchedEffect(dashboard != null, backgroundKeepAliveEnabled) {
         if (dashboard != null && backgroundKeepAliveEnabled) {
-            VtopKeepAliveService.start(context.applicationContext)
+            if (!startKeepAliveSafely()) {
+                appSettings.backgroundKeepAliveEnabled = false
+                backgroundKeepAliveEnabled = false
+            }
         } else {
             VtopKeepAliveService.stop(context.applicationContext)
         }
@@ -1007,21 +969,48 @@ private fun VtopApp(
             availableUpdate?.let { update ->
                 UpdatePromptDialog(
                     update = update,
+                    downloading = updateDownloading,
                     onDownload = {
-                        val targetUrl = update.targetUrl
-                        if (targetUrl.isNullOrBlank()) {
-                            message = "Update link is not available yet."
+                        val apkUrl = update.apkUrl
+                        if (apkUrl.isNullOrBlank()) {
+                            message = "Update APK is not available yet."
                             if (!update.isForceUpdate) {
                                 availableUpdate = null
                             }
-                        } else {
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                            !context.packageManager.canRequestPackageInstalls()
+                        ) {
+                            message = "Allow Gamma to install updates, then tap Download update again."
                             runCatching {
                                 context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    Intent(
+                                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                        Uri.parse("package:${context.packageName}")
+                                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 )
                             }.onFailure {
-                                message = "Could not open the update link."
+                                message = "Open Android settings and allow Gamma to install unknown apps."
+                            }
+                        } else {
+                            scope.launch {
+                                updateDownloading = true
+                                message = "Downloading Gamma ${update.versionName}..."
+                                downloadUpdateApk(
+                                    context = context.applicationContext,
+                                    apkUrl = apkUrl,
+                                    versionName = update.versionName
+                                ).onSuccess { apkUri ->
+                                    message = null
+                                    installDownloadedApk(context, apkUri)
+                                }.onFailure {
+                                    message = "Couldn't download the update. Try again later."
+                                    Toast.makeText(
+                                        context,
+                                        "Couldn't download the update.",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                updateDownloading = false
                             }
                         }
                     },
@@ -1035,6 +1024,49 @@ private fun VtopApp(
             }
         }
     }
+}
+
+private suspend fun downloadUpdateApk(
+    context: Context,
+    apkUrl: String,
+    versionName: String
+): Result<Uri> = withContext(Dispatchers.IO) {
+    runCatching {
+        val request = Request.Builder()
+            .url(apkUrl)
+            .get()
+            .build()
+
+        UpdateDownloadClient.newCall(request).execute().use { response ->
+            check(response.isSuccessful) { "Update download failed with HTTP ${response.code}." }
+            val body = response.body ?: error("Update download response was empty.")
+            val updateDir = File(context.cacheDir, "updates").apply { mkdirs() }
+            val safeVersion = versionName.ifBlank { "latest" }
+                .replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val apkFile = File(updateDir, "gamma-$safeVersion.apk")
+
+            body.byteStream().use { input ->
+                FileOutputStream(apkFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            FileProvider.getUriForFile(
+                context,
+                "${BuildConfig.APPLICATION_ID}.fileprovider",
+                apkFile
+            )
+        }
+    }
+}
+
+private fun installDownloadedApk(context: Context, apkUri: Uri) {
+    val installIntent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(apkUri, "application/vnd.android.package-archive")
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(installIntent)
 }
 
 @Composable
@@ -1449,6 +1481,7 @@ private fun SaveCredentialsDialog(
 @Composable
 private fun UpdatePromptDialog(
     update: AppUpdate,
+    downloading: Boolean,
     onDownload: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1476,8 +1509,17 @@ private fun UpdatePromptDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDownload) {
-                Text(if (update.targetUrl.isNullOrBlank()) "OK" else "Download update")
+            TextButton(
+                enabled = !downloading,
+                onClick = onDownload
+            ) {
+                Text(
+                    when {
+                        downloading -> "Downloading..."
+                        update.apkUrl.isNullOrBlank() -> "OK"
+                        else -> "Download update"
+                    }
+                )
             }
         },
         dismissButton = if (update.isForceUpdate) {
@@ -1731,8 +1773,33 @@ private fun GradesScreen(
     var gradesUnlocked by rememberSaveable { mutableStateOf(false) }
     var authAttempted by rememberSaveable { mutableStateOf(false) }
     var authMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    val keyguardManager = remember(context) {
+        context.getSystemService(KeyguardManager::class.java)
+    }
+    val canUseDeviceCredential = keyguardManager?.isDeviceSecure == true
+    val credentialLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            gradesUnlocked = true
+            authMessage = null
+        } else {
+            authMessage = "Grades stayed locked."
+        }
+    }
     val biometricStatus = remember(context) {
         BiometricManager.from(context).canAuthenticate(GRADES_AUTHENTICATORS)
+    }
+    val requestDeviceCredentialUnlock = {
+        val credentialIntent = keyguardManager?.createConfirmDeviceCredentialIntent(
+            "Unlock Grades",
+            "Use your phone PIN, pattern, or password."
+        )
+        if (credentialIntent == null) {
+            authMessage = "Set up a phone PIN, pattern, or password to protect grades."
+        } else {
+            credentialLauncher.launch(credentialIntent)
+        }
     }
     val requestUnlock = {
         authAttempted = true
@@ -1757,22 +1824,43 @@ private fun GradesScreen(
                 }
             }
             BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
-                authMessage = "Set up fingerprint, face unlock, or a phone PIN/password to protect grades."
+                if (canUseDeviceCredential) {
+                    requestDeviceCredentialUnlock()
+                } else {
+                    authMessage = "Set up fingerprint, face unlock, or a phone PIN/password to protect grades."
+                }
             }
             BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> {
-                authMessage = "This device does not support biometric unlock."
+                if (canUseDeviceCredential) {
+                    requestDeviceCredentialUnlock()
+                } else {
+                    authMessage = "Set up a phone PIN, pattern, or password to protect grades."
+                }
             }
             BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> {
-                authMessage = "Biometric unlock is temporarily unavailable."
+                if (canUseDeviceCredential) {
+                    requestDeviceCredentialUnlock()
+                } else {
+                    authMessage = "Secure unlock is temporarily unavailable."
+                }
             }
             else -> {
-                authMessage = "Biometric unlock is unavailable right now."
+                if (canUseDeviceCredential) {
+                    requestDeviceCredentialUnlock()
+                } else {
+                    authMessage = "Secure unlock is unavailable right now."
+                }
             }
         }
     }
 
-    LaunchedEffect(biometricStatus, gradesUnlocked, isActive) {
-        if (isActive && !gradesUnlocked && !authAttempted && biometricStatus == BiometricManager.BIOMETRIC_SUCCESS) {
+    LaunchedEffect(biometricStatus, gradesUnlocked, isActive, canUseDeviceCredential) {
+        if (
+            isActive &&
+            !gradesUnlocked &&
+            !authAttempted &&
+            (biometricStatus == BiometricManager.BIOMETRIC_SUCCESS || canUseDeviceCredential)
+        ) {
             requestUnlock()
         }
     }
@@ -1780,6 +1868,7 @@ private fun GradesScreen(
     if (!gradesUnlocked) {
         GradesSecurityScreen(
             status = biometricStatus,
+            canUseDeviceCredential = canUseDeviceCredential,
             message = authMessage,
             onUnlock = requestUnlock
         )
@@ -1909,6 +1998,7 @@ private fun GradesScreen(
 @Composable
 private fun GradesSecurityScreen(
     status: Int,
+    canUseDeviceCredential: Boolean,
     message: String?,
     onUnlock: () -> Unit
 ) {
@@ -1916,7 +2006,11 @@ private fun GradesSecurityScreen(
         BiometricManager.BIOMETRIC_SUCCESS -> "Use fingerprint, face unlock, or your phone PIN/password to view grades."
         BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> "Set up fingerprint, face unlock, or a phone PIN/password on this device."
         BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> "Use your phone PIN/password to view grades."
-        BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> "Secure unlock is temporarily unavailable."
+        BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> if (canUseDeviceCredential) {
+            "Use your phone PIN/password to view grades."
+        } else {
+            "Secure unlock is temporarily unavailable."
+        }
         else -> "Secure unlock is unavailable right now."
     }
 
@@ -1960,7 +2054,7 @@ private fun GradesSecurityScreen(
             )
             Button(
                 onClick = onUnlock,
-                enabled = status == BiometricManager.BIOMETRIC_SUCCESS,
+                enabled = status == BiometricManager.BIOMETRIC_SUCCESS || canUseDeviceCredential,
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,

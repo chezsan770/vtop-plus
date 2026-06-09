@@ -21,19 +21,17 @@ class AppUsageRepository {
         }
 
         runCatching {
-            val endpoint = BuildConfig.SUPABASE_URL.trimEnd('/') +
-                "/rest/v1/app_active_users?on_conflict=registration_number"
+            val endpoint = BuildConfig.SUPABASE_URL.trimEnd('/') + "/rest/v1/rpc/track_app_heartbeat"
             val json = JSONObject()
-                .put("registration_number", heartbeat.registrationNumber)
-                .put("student_name", heartbeat.studentName)
-                .put("app_version", heartbeat.appVersion)
-                .put("last_seen", heartbeat.lastSeen)
+                .put("p_registration_number", heartbeat.registrationNumber)
+                .put("p_student_name", heartbeat.studentName)
+                .put("p_app_version", heartbeat.appVersion)
                 .toString()
 
             val request = Request.Builder()
                 .url(endpoint)
                 .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+                .addHeader("Prefer", "return=minimal")
                 .post(json.toRequestBody("application/json".toMediaType()))
                 .addLegacyAuthorizationIfNeeded()
                 .build()

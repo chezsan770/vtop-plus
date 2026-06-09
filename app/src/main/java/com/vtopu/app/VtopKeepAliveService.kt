@@ -37,7 +37,12 @@ class VtopKeepAliveService : Service() {
             return START_NOT_STICKY
         }
 
-        startForeground(notificationId, buildNotification("Keeping VTOP session active"))
+        try {
+            startForeground(notificationId, buildNotification("Keeping VTOP session active"))
+        } catch (_: RuntimeException) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (keepAliveJob?.isActive != true) {
             keepAliveJob = scope.launch {
                 runKeepAliveLoop()
