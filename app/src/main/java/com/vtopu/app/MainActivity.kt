@@ -165,6 +165,7 @@ import com.vtopu.app.data.DashboardSnapshot
 import com.vtopu.app.data.FeatureRequestPayload
 import com.vtopu.app.data.FeatureRequestRepository
 import com.vtopu.app.data.GradeCourse
+import com.vtopu.app.data.AttendanceRecord
 import com.vtopu.app.data.LoginChallenge
 import com.vtopu.app.data.LoginResult
 import com.vtopu.app.data.SavedCredentials
@@ -3657,6 +3658,7 @@ private fun AttendanceCourseCard(
     course: AttendanceCourse,
     modifier: Modifier = Modifier
 ) {
+    var showDetails by remember(course.code) { mutableStateOf(false) }
     var animateIn by remember(course.code, course.percentage) { mutableStateOf(false) }
     LaunchedEffect(course.code, course.percentage) {
         animateIn = false
@@ -3669,8 +3671,17 @@ private fun AttendanceCourseCard(
         label = "attendance-progress"
     )
 
+    if (showDetails) {
+        AttendanceDetailDialog(
+            course = course,
+            onDismiss = { showDetails = false }
+        )
+    }
+
     AcademicCard(
-        modifier = modifier.height(176.dp),
+        modifier = modifier
+            .height(176.dp)
+            .clickable { showDetails = true },
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp)
     ) {
         Column(
@@ -3816,6 +3827,135 @@ private fun NextClassCard(dashboard: DashboardSnapshot) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun AttendanceDetailDialog(
+    course: AttendanceCourse,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp),
+        shape = RoundedCornerShape(24.dp),
+        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        tonalElevation = 0.dp,
+        titleContentColor = MaterialTheme.colorScheme.onSurface,
+        textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = course.name.ifBlank { course.code },
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "${course.code} • ${course.percentage}%",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+        },
+        text = {
+            if (course.records.isEmpty()) {
+                GlassPanel(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    contentPadding = PaddingValues(16.dp),
+                    baseTint = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        "Daily attendance details are not loaded yet. Refresh once after opening attendance in VTOP.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.height(380.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(course.records, key = { "${it.date}-${it.slot}-${it.dayTime}-${it.status}" }) { record ->
+                        AttendanceRecordRow(record = record)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
+private fun AttendanceRecordRow(record: AttendanceRecord) {
+    GlassPanel(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        baseTint = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(record.date, fontWeight = FontWeight.Black)
+                Text(
+                    listOf(record.dayTime, record.slot).filter { it.isNotBlank() }.joinToString(" • "),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            AttendanceStatusChip(status = record.status)
+        }
+    }
+}
+
+@Composable
+private fun AttendanceStatusChip(status: String) {
+    val normalized = status.trim().lowercase(Locale.ENGLISH)
+    val color = when {
+        normalized.contains("present") -> SuccessGreen
+        normalized.contains("absent") -> MaterialTheme.colorScheme.error
+        normalized.contains("duty") -> WarmGold
+        else -> MaterialTheme.colorScheme.primary
+    }
+    Surface(
+        shape = CircleShape,
+        color = color.copy(alpha = 0.18f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.72f))
+    ) {
+        Text(
+            text = status.ifBlank { "--" },
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+            color = color,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Black,
+            maxLines = 1
+        )
     }
 }
 

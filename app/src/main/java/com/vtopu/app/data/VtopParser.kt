@@ -147,10 +147,12 @@ object VtopParser {
     }
 
     private fun parseAttendance(document: Document): List<AttendanceCourse> {
+        val detailsByCode = parseAttendanceDetails(document)
         return document.select("table")
             .filter { table -> table.text().contains("attendance", ignoreCase = true) }
             .flatMap { table -> table.select("tbody tr, tr").mapNotNull(::parseAttendanceRow) }
             .distinctBy { "${it.code}-${it.name}" }
+            .map { course -> course.copy(records = detailsByCode[course.code.uppercase()].orEmpty()) }
     }
 
     private fun parseTimetable(document: Document): List<TimetableClass> {
@@ -251,8 +253,69 @@ object VtopParser {
         val courseCell = cells.firstOrNull { courseCodeRegex.containsMatchIn(it) } ?: return null
         val code = courseCodeRegex.find(courseCell)?.value ?: courseCell
         val name = courseCell.substringAfter(" - ", courseCell).substringBefore(" - Lecture").cleanText()
+        val onclick = row.select("a[onclick*=callStudentAttendanceDetailDisplay]").firstOrNull()?.attr("onclick").orEmpty()
+        val detailArgs = Regex("callStudentAttendanceDetailDisplay\\(([^)]*)\\)")
+            .find(onclick)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.let { args ->
+                Regex("'([^']*)'").findAll(args).map { it.groupValues[1] }.toList()
+            }
 
-        return AttendanceCourse(code = code, name = name, percentage = percentage)
+        return AttendanceCourse(
+            code = code,
+            name = name,
+            percentage = percentage,
+            detailCourseId = detailArgs?.getOrNull(2),
+            detailCourseType = detailArgs?.getOrNull(3)
+        )
+    }
+
+    private fun parseAttendanceDetails(document: Document): Map<String, List<AttendanceRecord>> {
+        val details = linkedMapOf<String, MutableList<AttendanceRecord>>()
+        var currentCourseCode: String? = null
+
+        document.select("table").forEach { table ->
+            val tableText = table.text().cleanText()
+            courseCodeRegex.find(tableText)?.value?.let { code ->
+                currentCourseCode = code.uppercase()
+            }
+            val looksLikeDetailTable =
+                tableText.contains("Day / Time", ignoreCase = true) &&
+                    tableText.contains("Status", ignoreCase = true) &&
+                    tableText.contains("Date", ignoreCase = true)
+            if (!looksLikeDetailTable) return@forEach
+
+            val courseCode = currentCourseCode ?: courseCodeRegex.find(tableText)?.value?.uppercase() ?: return@forEach
+            val records = table.select("tr").mapNotNull(::parseAttendanceRecordRow)
+            if (records.isNotEmpty()) {
+                details.getOrPut(courseCode) { mutableListOf() }.addAll(records)
+            }
+        }
+
+        return details.mapValues { (_, records) ->
+            records.distinctBy { "${it.date}-${it.slot}-${it.dayTime}-${it.status}" }
+        }
+    }
+
+    private fun parseAttendanceRecordRow(row: Element): AttendanceRecord? {
+        val cells = row.select("td")
+            .map { it.text().cleanText() }
+            .filter { it.isNotBlank() }
+        if (cells.size < 4 || cells.first().toIntOrNull() == null) return null
+
+        val date = cells.getOrNull(1).orEmpty()
+        val slot = cells.getOrNull(2).orEmpty()
+        val dayTime = cells.getOrNull(3).orEmpty()
+        val status = cells.getOrNull(4).orEmpty()
+        if (date.isBlank() || status.isBlank()) return null
+
+        return AttendanceRecord(
+            date = date,
+            slot = slot,
+            dayTime = dayTime,
+            status = status
+        )
     }
 
     private fun parseGrades(document: Document): List<GradeCourse> {

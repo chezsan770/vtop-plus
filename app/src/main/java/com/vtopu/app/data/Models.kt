@@ -20,7 +20,17 @@ data class UserProfile(
 data class AttendanceCourse(
     val code: String,
     val name: String,
-    val percentage: Int
+    val percentage: Int,
+    val records: List<AttendanceRecord> = emptyList(),
+    val detailCourseId: String? = null,
+    val detailCourseType: String? = null
+)
+
+data class AttendanceRecord(
+    val date: String,
+    val dayTime: String,
+    val status: String,
+    val slot: String = ""
 )
 
 data class GradeCourse(

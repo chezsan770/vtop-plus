@@ -25,8 +25,8 @@ android {
         applicationId = "com.vtopu.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 32
-        versionName = "4.1"
+        versionCode = 44
+        versionName = "4.4"
         buildConfigField(
             "String",
             "SUPABASE_URL",

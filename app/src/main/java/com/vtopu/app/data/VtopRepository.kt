@@ -413,7 +413,37 @@ class VtopRepository(context: Context) {
 
         attendanceMenu?.let { menu ->
             selectedAttendanceSemesterId = nextAttendanceSemesterId
-            lastAttendanceHtml = menu + attendanceDetailDeferred.await().getOrDefault("")
+            val attendanceDetailHtml = attendanceDetailDeferred.await().getOrDefault("")
+            val attendanceCourses = VtopParser.parseDashboard(
+                html = menu + attendanceDetailHtml,
+                selectedAttendanceSemesterId = selectedAttendanceSemesterId,
+                selectedTimetableSemesterId = selectedTimetableSemesterId,
+                selectedGradeSemesterId = selectedGradeSemesterId
+            ).attendance
+            val attendanceRecordHtml = nextAttendanceSemesterId?.let { semesterId ->
+                attendanceCourses
+                    .filter { course -> !course.detailCourseId.isNullOrBlank() && !course.detailCourseType.isNullOrBlank() }
+                    .map { course ->
+                        async {
+                            runCatching {
+                                postAjax(
+                                    path = "/vtop/processViewAttendanceDetail",
+                                    fields = attendanceDetailFields(
+                                        authorizedId = authorizedId,
+                                        csrf = csrf,
+                                        semesterId = semesterId,
+                                        registerNumber = authorizedId,
+                                        courseId = course.detailCourseId.orEmpty(),
+                                        courseType = course.detailCourseType.orEmpty()
+                                    )
+                                )
+                            }.getOrDefault("")
+                        }
+                    }
+                    .map { it.await() }
+                    .joinToString("")
+            }.orEmpty()
+            lastAttendanceHtml = menu + attendanceDetailHtml + attendanceRecordHtml
         }
         timetableMenu?.let { menu ->
             selectedTimetableSemesterId = nextTimetableSemesterId
@@ -446,6 +476,25 @@ class VtopRepository(context: Context) {
         mapOf(
             "_csrf" to csrf,
             "semesterSubId" to semesterId,
+            "authorizedID" to authorizedId,
+            "x" to java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
+                .format(java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+        )
+
+    private fun attendanceDetailFields(
+        authorizedId: String,
+        csrf: String,
+        semesterId: String,
+        registerNumber: String,
+        courseId: String,
+        courseType: String
+    ): Map<String, String> =
+        mapOf(
+            "_csrf" to csrf,
+            "semesterSubId" to semesterId,
+            "registerNumber" to registerNumber,
+            "courseId" to courseId,
+            "courseType" to courseType,
             "authorizedID" to authorizedId,
             "x" to java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
                 .format(java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
