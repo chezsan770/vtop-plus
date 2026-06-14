@@ -25,8 +25,8 @@ android {
         applicationId = "com.vtopu.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 46
-        versionName = "4.6"
+        versionCode = 47
+        versionName = "4.7"
         buildConfigField(
             "String",
             "SUPABASE_URL",
@@ -60,6 +60,7 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.biometric)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.material3)

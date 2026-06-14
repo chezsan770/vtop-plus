@@ -26,14 +26,6 @@ object VtopParser {
             }
     }
 
-    fun parseSpotlight(html: String): List<SpotlightItem> {
-        val document = Jsoup.parse(html)
-        return document.select(".spotlight-background li, #spotlightCanvas li")
-            .mapNotNull { item -> item.text().cleanText().takeIf { it.length > 8 } }
-            .distinct()
-            .map { SpotlightItem(it) }
-    }
-
     fun parseDashboard(
         html: String,
         selectedAttendanceSemesterId: String? = null,

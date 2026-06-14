@@ -7,9 +7,11 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.vtopu.app.data.AppSettings
 import com.vtopu.app.data.SessionKeepAliveResult
 import com.vtopu.app.data.VtopRepository
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +35,8 @@ class VtopKeepAliveService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            AppSettings(applicationContext).backgroundKeepAliveEnabled = false
+            VtopKeepAliveScheduler.cancel(applicationContext)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -44,6 +48,7 @@ class VtopKeepAliveService : Service() {
             return START_NOT_STICKY
         }
         if (keepAliveJob?.isActive != true) {
+            VtopKeepAliveScheduler.schedule(applicationContext)
             keepAliveJob = scope.launch {
                 runKeepAliveLoop()
             }
@@ -57,6 +62,14 @@ class VtopKeepAliveService : Service() {
         super.onDestroy()
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        if (AppSettings(applicationContext).backgroundKeepAliveEnabled) {
+            VtopKeepAliveScheduler.schedule(applicationContext)
+            runCatching { start(applicationContext) }
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun runKeepAliveLoop() {
@@ -65,6 +78,8 @@ class VtopKeepAliveService : Service() {
                 SessionKeepAliveResult.Active -> Unit
                 SessionKeepAliveResult.Failed -> Unit
                 SessionKeepAliveResult.Expired -> {
+                    AppSettings(applicationContext).backgroundKeepAliveEnabled = false
+                    VtopKeepAliveScheduler.cancel(applicationContext)
                     stopSelf()
                     return
                 }
@@ -88,13 +103,14 @@ class VtopKeepAliveService : Service() {
         )
 
         return NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(R.drawable.ic_launcher)
+            .setSmallIcon(R.drawable.ic_gamma_notification)
+            .setLargeIcon(BitmapFactory.decodeResource(resources, R.drawable.ic_launcher))
             .setContentTitle("VTOP session active")
             .setContentText(text)
             .setContentIntent(launchIntent)
             .setOngoing(true)
             .setSilent(true)
-            .addAction(R.drawable.ic_launcher, "Stop", stopIntent)
+            .addAction(R.drawable.ic_gamma_notification, "Stop", stopIntent)
             .build()
     }
 
@@ -127,6 +143,7 @@ class VtopKeepAliveService : Service() {
         }
 
         fun stop(context: Context) {
+            VtopKeepAliveScheduler.cancel(context.applicationContext)
             context.stopService(Intent(context, VtopKeepAliveService::class.java))
         }
     }

@@ -3,6 +3,8 @@ package com.vtopu.app
 import android.Manifest
 import android.app.Activity
 import android.app.KeyguardManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -13,19 +15,14 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.Base64
 import android.view.Gravity
 import android.widget.Toast
 import android.widget.FrameLayout
 import android.webkit.CookieManager
-import android.webkit.JavascriptInterface
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
-import android.webkit.WebChromeClient
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
@@ -34,14 +31,12 @@ import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -55,7 +50,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -70,26 +64,30 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.EventNote
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Grade
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.DonutLarge
-import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Logout
-import androidx.compose.material.icons.filled.MenuBook
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -101,15 +99,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -123,6 +118,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -138,9 +134,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -166,6 +162,8 @@ import com.vtopu.app.data.AppUsageRepository
 import com.vtopu.app.data.CredentialStore
 import com.vtopu.app.data.CourseMarks
 import com.vtopu.app.data.DashboardSnapshot
+import com.vtopu.app.data.FacultyFinderRepository
+import com.vtopu.app.data.FacultyProfile
 import com.vtopu.app.data.FeatureRequestPayload
 import com.vtopu.app.data.FeatureRequestRepository
 import com.vtopu.app.data.GradeCourse
@@ -198,10 +196,7 @@ import java.time.LocalTime
 import java.time.format.TextStyle as DateTextStyle
 import java.util.Locale
 import kotlin.coroutines.resume
-import kotlin.math.PI
 import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.sin
 
 private val OxfordBlue = Color(0xFF1A365D)
 private val OxfordBlueDark = Color(0xFFADC7F7)
@@ -364,6 +359,8 @@ private data class NextClassCardState(
 )
 
 class MainActivity : FragmentActivity() {
+    private var notificationPermissionResult: ((Boolean) -> Unit)? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
@@ -380,9 +377,13 @@ class MainActivity : FragmentActivity() {
             var accentColor by remember {
                 mutableStateOf(AccentColor.fromStorage(appSettings.accentColor))
             }
-            VtopTheme(dark = darkMode, appearanceTheme = appearanceTheme, accentColor = accentColor) {
+            VtopTheme(
+                dark = darkMode,
+                appearanceTheme = appearanceTheme,
+                accentColor = accentColor
+            ) {
                 VtopApp(
-                    repository = remember(context) { VtopRepository(context.applicationContext) },
+                    repository = remember(context) { VtopRepository(context.applicationContext) }, 
                     darkMode = darkMode,
                     appearanceTheme = appearanceTheme,
                     accentColor = accentColor,
@@ -400,6 +401,35 @@ class MainActivity : FragmentActivity() {
                     }
                 )
             }
+        }
+    }
+
+    fun requestNotificationPermission(onResult: (Boolean) -> Unit): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        ) {
+            onResult(true)
+            return false
+        }
+
+        notificationPermissionResult = onResult
+        requestPermissions(
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            notificationPermissionRequestCode
+        )
+        return true
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == notificationPermissionRequestCode) {
+            val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+            notificationPermissionResult?.invoke(granted)
+            notificationPermissionResult = null
         }
     }
 
@@ -436,6 +466,10 @@ class MainActivity : FragmentActivity() {
             .build()
 
         prompt.authenticate(promptInfo)
+    }
+
+    private companion object {
+        private const val notificationPermissionRequestCode = 47
     }
 }
 
@@ -576,12 +610,13 @@ private fun VtopApp(
     var message by remember { mutableStateOf<String?>(null) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var sessionGeneration by remember { mutableIntStateOf(0) }
-    val pagerState = rememberPagerState(pageCount = { 4 })
+    val pagerState = rememberPagerState(pageCount = { 5 })
     val context = LocalContext.current
     val credentialStore = remember(context) { CredentialStore(context.applicationContext) }
     val appSettings = remember(context) { AppSettings(context.applicationContext) }
     val appUsageRepository = remember { AppUsageRepository() }
     val appUpdateRepository = remember { AppUpdateRepository() }
+    val hostActivity = remember(context) { context.findMainActivity() }
     val openExternalUrl: (String) -> Unit = { url ->
         runCatching {
             context.startActivity(
@@ -601,6 +636,7 @@ private fun VtopApp(
     var pendingSaveCredentials by remember { mutableStateOf<SavedCredentials?>(null) }
     var availableUpdate by remember { mutableStateOf<AppUpdate?>(null) }
     var updateDownloading by remember { mutableStateOf(false) }
+    var pendingKeepAliveEnable by remember { mutableStateOf(false) }
     val startKeepAliveSafely: () -> Boolean = {
         runCatching {
             VtopKeepAliveService.start(context.applicationContext)
@@ -613,20 +649,65 @@ private fun VtopApp(
             ).show()
         }.isSuccess
     }
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            if (dashboard != null && !startKeepAliveSafely()) {
-                appSettings.backgroundKeepAliveEnabled = false
-                backgroundKeepAliveEnabled = false
-            } else {
-                appSettings.backgroundKeepAliveEnabled = true
-                backgroundKeepAliveEnabled = true
-            }
+    val finishEnablingBackgroundKeepAlive: () -> Unit = {
+        pendingKeepAliveEnable = false
+        if (startKeepAliveSafely()) {
+            appSettings.backgroundKeepAliveEnabled = true
+            backgroundKeepAliveEnabled = true
+            VtopKeepAliveScheduler.schedule(context.applicationContext)
+            message = "VTOP Online enabled."
+            Toast.makeText(context, "VTOP Online enabled.", Toast.LENGTH_SHORT).show()
         } else {
             appSettings.backgroundKeepAliveEnabled = false
             backgroundKeepAliveEnabled = false
+            VtopKeepAliveScheduler.cancel(context.applicationContext)
+        }
+    }
+    val batteryOptimizationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (pendingKeepAliveEnable) {
+            finishEnablingBackgroundKeepAlive()
+        }
+    }
+    val requestBatteryOptimizationExemptionIfNeeded: () -> Boolean = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = context.getSystemService(PowerManager::class.java)
+            if (powerManager?.isIgnoringBatteryOptimizations(context.packageName) != true) {
+                pendingKeepAliveEnable = true
+                val requestIntent = Intent(
+                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:${context.packageName}")
+                )
+                val launched = runCatching {
+                    batteryOptimizationLauncher.launch(requestIntent)
+                }.recoverCatching {
+                    batteryOptimizationLauncher.launch(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                }.isSuccess
+                if (launched) {
+                    message = "Allow Gamma to ignore battery optimization so VTOP Online can keep running."
+                    true
+                } else {
+                    pendingKeepAliveEnable = false
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+    val onNotificationPermissionResult: (Boolean) -> Unit = { granted ->
+        if (granted) {
+            if (!requestBatteryOptimizationExemptionIfNeeded()) {
+                finishEnablingBackgroundKeepAlive()
+            }
+        } else {
+            pendingKeepAliveEnable = false
+            appSettings.backgroundKeepAliveEnabled = false
+            backgroundKeepAliveEnabled = false
+            VtopKeepAliveScheduler.cancel(context.applicationContext)
             message = "Notification permission is needed for background keep-alive."
         }
     }
@@ -643,6 +724,7 @@ private fun VtopApp(
             appSettings.backgroundKeepAliveEnabled = false
             backgroundKeepAliveEnabled = false
             VtopKeepAliveService.stop(context.applicationContext)
+            VtopKeepAliveScheduler.cancel(context.applicationContext)
             repository.logout()
             clearWebViewCookies()
             challenge = repository.prepareLogin()
@@ -660,18 +742,18 @@ private fun VtopApp(
         }
     }
     val enableBackgroundKeepAlive: () -> Unit = {
+        pendingKeepAliveEnable = true
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            if (startKeepAliveSafely()) {
-                appSettings.backgroundKeepAliveEnabled = true
-                backgroundKeepAliveEnabled = true
-            } else {
-                appSettings.backgroundKeepAliveEnabled = false
-                backgroundKeepAliveEnabled = false
+            val launched = hostActivity?.requestNotificationPermission(onNotificationPermissionResult) == true
+            if (!launched) {
+                onNotificationPermissionResult(false)
             }
+        } else if (requestBatteryOptimizationExemptionIfNeeded()) {
+            Unit
+        } else {
+            finishEnablingBackgroundKeepAlive()
         }
     }
     val setBackgroundKeepAlive: (Boolean) -> Unit = { enabled ->
@@ -679,9 +761,8 @@ private fun VtopApp(
             appSettings.backgroundKeepAliveEnabled = false
             backgroundKeepAliveEnabled = false
             VtopKeepAliveService.stop(context.applicationContext)
+            VtopKeepAliveScheduler.cancel(context.applicationContext)
         } else {
-            message = "VTOP Online enabled."
-            Toast.makeText(context, "VTOP Online enabled.", Toast.LENGTH_SHORT).show()
             enableBackgroundKeepAlive()
         }
     }
@@ -732,19 +813,23 @@ private fun VtopApp(
         }
     }
 
-    LaunchedEffect(dashboard != null, backgroundKeepAliveEnabled) {
-        if (dashboard != null && backgroundKeepAliveEnabled) {
+    LaunchedEffect(backgroundKeepAliveEnabled) {
+        if (backgroundKeepAliveEnabled) {
             if (!startKeepAliveSafely()) {
                 appSettings.backgroundKeepAliveEnabled = false
                 backgroundKeepAliveEnabled = false
+                VtopKeepAliveScheduler.cancel(context.applicationContext)
+            } else {
+                VtopKeepAliveScheduler.schedule(context.applicationContext)
             }
         } else {
             VtopKeepAliveService.stop(context.applicationContext)
+            VtopKeepAliveScheduler.cancel(context.applicationContext)
         }
     }
 
     LaunchedEffect(pagerState.currentPage, dashboard != null) {
-        if (dashboard != null && selectedTab != 4) {
+        if (dashboard != null && selectedTab != pagerState.currentPage) {
             selectedTab = pagerState.currentPage
         }
     }
@@ -760,8 +845,7 @@ private fun VtopApp(
                 ActiveUserHeartbeat(
                     registrationNumber = registrationNumber,
                     studentName = profile.name,
-                    appVersion = BuildConfig.VERSION_NAME,
-                    lastSeen = Instant.now().toString()
+                    appVersion = BuildConfig.VERSION_NAME
                 )
             )
             delay(APP_USAGE_HEARTBEAT_INTERVAL_MILLIS)
@@ -796,12 +880,8 @@ private fun VtopApp(
         bottomBar = {
             if (dashboard != null) {
                 AcademicBottomBar(
-                    selectedTab = if (selectedTab == 4) 3 else selectedTab,
-                    swipePosition = if (selectedTab == 4) {
-                        3f
-                    } else {
-                        (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 3f)
-                    },
+                    selectedTab = selectedTab,
+                    swipePosition = (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 4f),
                     onSelected = { tab ->
                         selectedTab = tab
                         scope.launch {
@@ -816,12 +896,9 @@ private fun VtopApp(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
-                .padding(padding)
+                .padding(top = padding.calculateTopPadding())
                 .windowInsetsPadding(WindowInsets.safeDrawing)
         ) {
-            if (darkMode) {
-                AmoledNeonBackground()
-            }
             if (dashboard == null && showLanding) {
                 LandingScreen(
                     onContinue = {
@@ -880,21 +957,6 @@ private fun VtopApp(
                         }
                     }
                 )
-            } else if (selectedTab == 4) {
-                FullPortalScreen(
-                    cookieHeaders = repository.cookiesForWebView(),
-                    portalStartUrl = repository.portalStartUrl(),
-                    onHomeRequested = { repository.portalHomeUrl() },
-                    onLogout = logout,
-                    onPortalHtml = { html, url ->
-                        val expectedSession = sessionGeneration
-                        scope.launch {
-                            if (dashboard != null && expectedSession == sessionGeneration) {
-                                dashboard = repository.capturePortalPage(html, url)
-                            }
-                        }
-                    }
-                )
             } else {
                 HorizontalPager(
                     state = pagerState,
@@ -917,12 +979,13 @@ private fun VtopApp(
                         1 -> ClassesScreen(
                             dashboard = dashboard!!
                         )
-                        2 -> GradesScreen(
+                        2 -> ToolsScreen()
+                        3 -> GradesScreen(
                             dashboard = dashboard!!,
-                            isActive = selectedTab == 2 && pagerState.settledPage == 2,
+                            isActive = selectedTab == 3 && pagerState.settledPage == 3,
                             onSemesterSelected = selectSemester
                         )
-                        3 -> ProfileSettingsScreen(
+                        4 -> ProfileSettingsScreen(
                             dashboard = dashboard!!,
                             darkMode = darkMode,
                             appearanceTheme = appearanceTheme,
@@ -1070,159 +1133,165 @@ private fun installDownloadedApk(context: Context, apkUri: Uri) {
 }
 
 @Composable
-private fun AmoledNeonBackground() {
-    val accent = MaterialTheme.colorScheme.primary
-    val transition = rememberInfiniteTransition(label = "amoled-neon")
-    val drift by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 9500, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "neon-drift"
-    )
-    val pulse by transition.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2600, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "neon-pulse"
-    )
-
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val canvasWidth = size.width
-        val canvasHeight = size.height
-        if (canvasWidth <= 0f || canvasHeight <= 0f) return@Canvas
-
-        fun drawBeam(progress: Float, yFraction: Float, lengthFraction: Float, alphaScale: Float) {
-            val beamLength = canvasWidth * lengthFraction
-            val travel = canvasWidth + beamLength * 2f
-            val x = -beamLength + ((progress % 1f) * travel)
-            val start = Offset(x, canvasHeight * yFraction)
-            val end = Offset(x + beamLength, canvasHeight * (yFraction + 0.10f))
-            val glow = Brush.linearGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    accent.copy(alpha = 0.08f * pulse * alphaScale),
-                    accent.copy(alpha = 0.30f * pulse * alphaScale),
-                    accent.copy(alpha = 0.08f * pulse * alphaScale),
-                    Color.Transparent
-                ),
-                start = start,
-                end = end
-            )
-            drawLine(
-                brush = glow,
-                start = start,
-                end = end,
-                strokeWidth = 30.dp.toPx(),
-                cap = StrokeCap.Round
-            )
-            drawLine(
-                brush = glow,
-                start = start,
-                end = end,
-                strokeWidth = 4.dp.toPx(),
-                cap = StrokeCap.Round
-            )
-        }
-
-        drawBeam(drift, 0.10f, 0.78f, 1.18f)
-        drawBeam((drift + 0.34f) % 1f, 0.44f, 0.64f, 0.92f)
-        drawBeam((drift + 0.68f) % 1f, 0.78f, 0.72f, 1.0f)
-
-        val topLineAlpha = 0.12f + (0.08f * pulse)
-        drawLine(
-            color = accent.copy(alpha = topLineAlpha),
-            start = Offset(0f, canvasHeight * 0.035f),
-            end = Offset(canvasWidth, canvasHeight * 0.02f),
-            strokeWidth = 1.dp.toPx()
-        )
-        drawLine(
-            color = accent.copy(alpha = topLineAlpha * 0.72f),
-            start = Offset(canvasWidth * 0.08f, canvasHeight),
-            end = Offset(canvasWidth * 0.92f, canvasHeight * 0.96f),
-            strokeWidth = 1.dp.toPx()
-        )
-    }
-}
-
-@Composable
 private fun AcademicBottomBar(
     selectedTab: Int,
     swipePosition: Float,
     onSelected: (Int) -> Unit
 ) {
-    val dockItemColors = NavigationBarItemDefaults.colors(
-        selectedIconColor = MaterialTheme.colorScheme.primary,
-        selectedTextColor = MaterialTheme.colorScheme.primary,
-        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f),
-        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f)
-    )
-    NavigationBar(
-        containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation = 0.dp
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(118.dp)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.10f),
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.34f),
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.70f),
+                        MaterialTheme.colorScheme.background
+                    )
+                )
+            )
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        contentAlignment = Alignment.BottomCenter
     ) {
-        NavigationBarItem(
-            selected = selectedTab == 0,
-            onClick = { onSelected(0) },
-            icon = {
-                DockIcon(
-                    tabIndex = 0,
-                    swipePosition = swipePosition
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.84f)
+                .height(60.dp),
+            shape = RoundedCornerShape(34.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DockPillItem(
+                    label = "Home",
+                    selected = selectedTab == 0,
+                    onClick = { onSelected(0) },
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Default.Home, contentDescription = null)
+                    DockIcon(tabIndex = 0, swipePosition = swipePosition) {
+                        Icon(Icons.Default.Home, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
                 }
-            },
-            label = { Text("Home") },
-            colors = dockItemColors
-        )
-        NavigationBarItem(
-            selected = selectedTab == 1,
-            onClick = { onSelected(1) },
-            icon = {
-                DockIcon(
-                    tabIndex = 1,
-                    swipePosition = swipePosition
+                DockPillItem(
+                    label = "Classes",
+                    selected = selectedTab == 1,
+                    onClick = { onSelected(1) },
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Default.MenuBook, contentDescription = null)
+                    DockIcon(tabIndex = 1, swipePosition = swipePosition) {
+                        Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
                 }
-            },
-            label = { Text("Classes") },
-            colors = dockItemColors
-        )
-        NavigationBarItem(
-            selected = selectedTab == 2,
-            onClick = { onSelected(2) },
-            icon = {
-                DockIcon(
-                    tabIndex = 2,
-                    swipePosition = swipePosition
+                DockPillItem(
+                    label = "Tools",
+                    selected = selectedTab == 2,
+                    onClick = { onSelected(2) },
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Default.Grade, contentDescription = null)
+                    DockIcon(tabIndex = 2, swipePosition = swipePosition) {
+                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
                 }
-            },
-            label = { Text("Grades") },
-            colors = dockItemColors
-        )
-        NavigationBarItem(
-            selected = selectedTab == 3,
-            onClick = { onSelected(3) },
-            icon = {
-                DockIcon(
-                    tabIndex = 3,
-                    swipePosition = swipePosition
+                DockPillItem(
+                    label = "Grades",
+                    selected = selectedTab == 3,
+                    onClick = { onSelected(3) },
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Default.Person, contentDescription = null)
+                    DockIcon(tabIndex = 3, swipePosition = swipePosition) {
+                        Icon(Icons.Default.Grade, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
                 }
-            },
-            label = { Text("Profile") },
-            colors = dockItemColors
+                DockPillItem(
+                    label = "Profile",
+                    selected = selectedTab == 4,
+                    onClick = { onSelected(4) },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    DockIcon(tabIndex = 4, swipePosition = swipePosition) {
+                        Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DockPillItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: @Composable () -> Unit
+) {
+    val selectionAlpha by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = tween(durationMillis = 220),
+        label = "dock-tab-fade"
+    )
+    val contentColor = if (selected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+    }
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 2.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.11f * selectionAlpha)
+        ) {}
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.08f * selectionAlpha),
+                            Color.Transparent
+                        )
+                    ),
+                    shape = RoundedCornerShape(28.dp)
+                )
         )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier.size(width = 42.dp, height = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CompositionLocalProvider(LocalContentColor provides contentColor) {
+                    icon()
+                }
+            }
+            Text(
+                text = label,
+                color = contentColor,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -1654,7 +1723,7 @@ private fun DashboardScreen(
                 SectionHeader(
                     title = "Next Class",
                     trailing = "TODAY",
-                    icon = Icons.Default.EventNote
+                    icon = Icons.AutoMirrored.Filled.EventNote
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 NextClassCard(dashboard = dashboard)
@@ -1875,7 +1944,9 @@ private fun GradesScreen(
         return
     }
 
-    var selectedGradeSection by remember { mutableStateOf("Current") }
+    val gradePagerState = rememberPagerState(pageCount = { 2 })
+    val scope = rememberCoroutineScope()
+    val selectedGradeSection = if (gradePagerState.currentPage == 1) "History" else "Current"
     val marksByCode = remember(dashboard.marks) {
         dashboard.marks.associateBy { it.code.uppercase() }
     }
@@ -1891,99 +1962,131 @@ private fun GradesScreen(
     val historyGradeCounts = remember(dashboard.gradeHistory) {
         dashboard.gradeHistory.toGradeCounts()
     }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
     ) {
-        item {
-            SimpleScreenHeader(
-                title = when (selectedGradeSection) {
-                    "History" -> "Grade History"
-                    else -> "Grades"
-                },
-                subtitle = when (selectedGradeSection) {
-                    "History" -> "Review your academic performance."
-                    else -> dashboard.selectedGradeSemester?.label ?: dashboard.selectedAttendanceSemester?.label ?: "Selected semester"
-                }
-            )
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = { selectedGradeSection = "Current" },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (selectedGradeSection == "Current") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = if (selectedGradeSection == "Current") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                    )
-                ) {
-                    Text("Current")
-                }
-                Button(
-                    onClick = { selectedGradeSection = "History" },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (selectedGradeSection == "History") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = if (selectedGradeSection == "History") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                    )
-                ) {
-                    Text("History")
+        Spacer(modifier = Modifier.height(14.dp))
+        SimpleScreenHeader(
+            title = when (selectedGradeSection) {
+                "History" -> "Grade History"
+                else -> "Grades"
+            },
+            subtitle = when (selectedGradeSection) {
+                "History" -> "Review your academic performance."
+                else -> dashboard.selectedGradeSemester?.label ?: dashboard.selectedAttendanceSemester?.label ?: "Selected semester"
+            }
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        ThemedSegmentedControl(
+            options = listOf("Current", "History"),
+            selectedIndex = gradePagerState.currentPage,
+            onSelected = { index ->
+                scope.launch {
+                    gradePagerState.animateScrollToPage(index)
                 }
             }
-        }
-        if (selectedGradeSection == "History") {
-            item {
-                CumulativeGpaCard(
-                    cgpa = dashboard.cgpa ?: estimateTermGpa(dashboard.gradeHistory),
-                    historyCount = dashboard.gradeHistory.size
-                )
-            }
-            item {
-                GradeDistributionCard(gradeCounts = historyGradeCounts)
-            }
-            item {
-                CreditSummaryCard(courses = dashboard.gradeHistory, totalCredits = dashboard.totalCredits)
-            }
-            if (dashboard.gradeHistory.isEmpty()) {
-                item {
-                    EmptyState("No grade history found in the loaded VTOP data.")
-                }
-            } else {
-                historyTerms.forEach { (term, courses) ->
-                    item {
-                        TermHeader(term = term, gpa = estimateTermGpa(courses))
-                    }
-                    item {
-                        TermGradeGroup(courses = courses)
-                    }
-                }
-            }
-        } else {
-            item {
-                SemesterSelectorCard(
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        HorizontalPager(
+            state = gradePagerState,
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
+            if (page == 1) {
+                GradeHistoryPage(
                     dashboard = dashboard,
+                    historyGradeCounts = historyGradeCounts,
+                    historyTerms = historyTerms
+                )
+            } else {
+                CurrentGradesPage(
+                    dashboard = dashboard,
+                    marksByCode = marksByCode,
                     onSemesterSelected = onSemesterSelected
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun CurrentGradesPage(
+    dashboard: DashboardSnapshot,
+    marksByCode: Map<String, CourseMarks>,
+    onSemesterSelected: (String, String) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 128.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            SemesterSelectorCard(
+                dashboard = dashboard,
+                onSemesterSelected = onSemesterSelected
+            )
+        }
+        item {
+            GradeSummaryCard(courseCount = dashboard.grades.size, gpa = dashboard.gpa)
+        }
+        if (dashboard.grades.isEmpty()) {
             item {
-                GradeSummaryCard(courseCount = dashboard.grades.size, gpa = dashboard.gpa)
+                EmptyState("No grades found for the selected semester.")
             }
-            if (dashboard.grades.isEmpty()) {
+        } else {
+            items(
+                items = dashboard.grades,
+                key = { "${it.code}-${it.grade}-${it.grandTotal.orEmpty()}" }
+            ) { course ->
+                GradeCourseCard(
+                    course = course,
+                    marks = marksByCode[course.code.uppercase()]
+                )
+            }
+        }
+        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+            item {
+                StartIoBannerAd()
+            }
+        }
+    }
+}
+
+@Composable
+private fun GradeHistoryPage(
+    dashboard: DashboardSnapshot,
+    historyGradeCounts: List<Pair<String, Int>>,
+    historyTerms: List<Pair<String, List<GradeCourse>>>
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 128.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            CumulativeGpaCard(
+                cgpa = dashboard.cgpa ?: estimateTermGpa(dashboard.gradeHistory),
+                historyCount = dashboard.gradeHistory.size
+            )
+        }
+        item {
+            GradeDistributionCard(gradeCounts = historyGradeCounts)
+        }
+        item {
+            CreditSummaryCard(courses = dashboard.gradeHistory, totalCredits = dashboard.totalCredits)
+        }
+        if (dashboard.gradeHistory.isEmpty()) {
+            item {
+                EmptyState("No grade history found in the loaded VTOP data.")
+            }
+        } else {
+            historyTerms.forEach { (term, courses) ->
                 item {
-                    EmptyState("No grades found for the selected semester.")
+                    TermHeader(term = term, gpa = estimateTermGpa(courses))
                 }
-            } else {
-                items(
-                    items = dashboard.grades,
-                    key = { "${it.code}-${it.grade}-${it.grandTotal.orEmpty()}" }
-                ) { course ->
-                    GradeCourseCard(
-                        course = course,
-                        marks = marksByCode[course.code.uppercase()]
-                    )
+                item {
+                    TermGradeGroup(courses = courses)
                 }
             }
         }
@@ -2253,7 +2356,7 @@ private fun ScheduleClassCard(
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                Icons.Default.MenuBook,
+                                Icons.AutoMirrored.Filled.MenuBook,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(15.dp)
@@ -2512,6 +2615,7 @@ private fun MarkEntryRow(title: String, scored: String, max: String, weight: Str
 
 @Composable
 private fun CumulativeGpaCard(cgpa: String?, historyCount: Int) {
+    val isHighCgpa = cgpa?.toDoubleOrNull()?.let { it > 9.0 } == true
     AcademicCard {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -2519,22 +2623,73 @@ private fun CumulativeGpaCard(cgpa: String?, historyCount: Int) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("CUMULATIVE CGPA", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(cgpa ?: "--", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
+                Text(
+                    "CUMULATIVE CGPA",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (isHighCgpa) WarmGold else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (isHighCgpa) FontWeight.Black else FontWeight.Normal
+                )
+                ShiningCgpaText(
+                    text = cgpa ?: "--",
+                    enabled = isHighCgpa
+                )
                 Text("$historyCount completed courses", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Surface(
                 modifier = Modifier.size(48.dp),
                 shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                color = if (isHighCgpa) WarmGold.copy(alpha = 0.16f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                border = BorderStroke(1.dp, if (isHighCgpa) WarmGold else MaterialTheme.colorScheme.primary)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Grade, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(
+                        Icons.Default.Grade,
+                        contentDescription = null,
+                        tint = if (isHighCgpa) WarmGold else MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ShiningCgpaText(text: String, enabled: Boolean) {
+    if (!enabled) {
+        Text(
+            text,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Black
+        )
+        return
+    }
+
+    val transition = rememberInfiniteTransition(label = "cgpa-shine")
+    val shineOffset by transition.animateFloat(
+        initialValue = -220f,
+        targetValue = 420f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1800, easing = LinearEasing)
+        ),
+        label = "cgpa-shine-offset"
+    )
+    Text(
+        text = text,
+        style = MaterialTheme.typography.headlineMedium.copy(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    WarmGold,
+                    Color(0xFFFFF6BF),
+                    Color.White,
+                    Color(0xFFFFF6BF),
+                    WarmGold
+                ),
+                start = Offset(shineOffset, 0f),
+                end = Offset(shineOffset + 180f, 70f)
+            )
+        ),
+        fontWeight = FontWeight.Black
+    )
 }
 
 @Composable
@@ -2587,28 +2742,21 @@ private fun GradeCountTile(
 ) {
     val shape = RoundedCornerShape(12.dp)
     val active = count > 0
-    val glassTint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    val tileColor = if (active) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
     Surface(
         modifier = modifier,
         shape = shape,
-        color = glassTint.copy(alpha = if (active) 0.13f else 0.28f),
+        color = tileColor.blendForFlatSurface(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.background.luminance() < 0.5f),
         border = BorderStroke(
             1.dp,
-            if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.62f) else Color.White.copy(alpha = 0.16f)
+            if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.62f) else MaterialTheme.colorScheme.outline
         )
     ) {
-        Box(
-            modifier = Modifier.background(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = if (active) 0.18f else 0.10f),
-                        glassTint.copy(alpha = if (active) 0.10f else 0.05f),
-                        Color.White.copy(alpha = 0.03f)
-                    )
-                ),
-                shape = shape
-            )
-        ) {
+        Box {
             Row(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -3023,6 +3171,719 @@ private fun ProfileSettingsScreen(
 }
 
 @Composable
+private fun ToolsScreen() {
+    var selectedTool by rememberSaveable { mutableStateOf<String?>(null) }
+
+    BackHandler(enabled = selectedTool != null) {
+        selectedTool = null
+    }
+
+    if (selectedTool == "cgpa") {
+        CgpaCalculatorTool(
+            onBack = { selectedTool = null }
+        )
+        return
+    }
+    if (selectedTool == "faculty") {
+        FacultyFinderTool(
+            onBack = { selectedTool = null }
+        )
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            SimpleScreenHeader(
+                title = "Tools",
+                subtitle = "Small utilities for academics."
+            )
+        }
+        item {
+            ToolCard(
+                title = "CGPA Calculator",
+                subtitle = "Calculate course GPA and projected CGPA.",
+                icon = Icons.Default.School,
+                onClick = { selectedTool = "cgpa" }
+            )
+        }
+        item {
+            ToolCard(
+                title = "Faculty Finder",
+                subtitle = "Search VIT Bhopal faculty details quickly.",
+                icon = Icons.Default.Person,
+                onClick = { selectedTool = "faculty" }
+            )
+        }
+        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+            item {
+                StartIoBannerAd()
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    AcademicCard(contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SettingsIconChip(icon = icon)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                    Text(
+                        subtitle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = "Open $title")
+        }
+    }
+}
+
+@Composable
+private fun ThemedSegmentedControl(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.74f))
+    ) {
+        Row(
+            modifier = Modifier.padding(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            options.forEachIndexed { index, label ->
+                val selected = selectedIndex == index
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .clickable { onSelected(index) },
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                    } else {
+                        Color.Transparent
+                    },
+                    border = if (selected) {
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.68f))
+                    } else {
+                        null
+                    }
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = label,
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FacultyFinderTool(
+    onBack: () -> Unit
+) {
+    val context = LocalContext.current
+    val repository = remember { FacultyFinderRepository() }
+    var query by rememberSaveable { mutableStateOf("") }
+    var faculty by remember { mutableStateOf<List<FacultyProfile>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(query) {
+        error = null
+        if (query.isBlank()) {
+            faculty = emptyList()
+            loading = false
+            return@LaunchedEffect
+        }
+
+        loading = true
+        delay(280)
+        repository.searchFaculty(query)
+            .onSuccess {
+                faculty = it
+                error = null
+            }
+            .onFailure {
+                error = "Couldn't load faculty details. Try again later."
+            }
+        loading = false
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to tools")
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Faculty Finder", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                    Text(
+                        "Search by faculty name.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+        }
+        item {
+            AcademicCard {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = if (query.isBlank()) 72.dp else 0.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (query.isBlank()) {
+                        SettingsIconChip(icon = Icons.Default.Person)
+                        Text(
+                            "Find Faculty",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Black
+                        )
+                        Text(
+                            "Search by name to view cabin and mobile details.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it.take(60) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Faculty name") },
+                        placeholder = { Text("e.g. Sharma") },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        )
+                    )
+                    if (query.isNotBlank()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "${faculty.size} result${if (faculty.size == 1) "" else "s"}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                            AnimatedVisibility(visible = loading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        error?.let { message ->
+            item {
+                EmptyState(message)
+            }
+        }
+        if (query.isNotBlank() && !loading && error == null && faculty.isEmpty()) {
+            item {
+                EmptyState("No faculty found for this search.")
+            }
+        }
+        items(faculty, key = { it.id }) { profile ->
+            FacultyProfileCard(
+                profile = profile,
+                onCall = { number ->
+                    context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number")))
+                },
+                onCopy = { number ->
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Faculty mobile number", number))
+                    Toast.makeText(context, "Mobile number copied.", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+            item {
+                StartIoBannerAd()
+            }
+        }
+    }
+}
+
+@Composable
+private fun FacultyProfileCard(
+    profile: FacultyProfile,
+    onCall: (String) -> Unit,
+    onCopy: (String) -> Unit
+) {
+    AcademicCard {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SettingsIconChip(icon = Icons.Default.Person)
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        profile.name.toDisplayNameCase(),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        "VIT Bhopal faculty",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+            FacultyInfoRow(
+                icon = Icons.Default.LocationOn,
+                label = "Cabin",
+                value = profile.cabinNumber ?: "-"
+            )
+            FacultyInfoRow(
+                icon = Icons.Default.ContentCopy,
+                label = "Mobile",
+                value = profile.mobileNumber ?: "-"
+            )
+            profile.mobileNumber?.let { number ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = { onCall(number) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Call")
+                    }
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .clickable { onCopy(number) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.8f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Copy", fontWeight = FontWeight.Black)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FacultyInfoRow(
+    icon: ImageVector,
+    label: String,
+    value: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+        Text(
+            value,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.End,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private data class CgpaCourseInput(
+    val id: Int,
+    val course: String = "",
+    val grade: String = "S",
+    val credits: String = "4"
+)
+
+@Composable
+private fun CgpaCalculatorTool(
+    onBack: () -> Unit
+) {
+    val calculatorPagerState = rememberPagerState(pageCount = { 2 })
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to tools")
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("CGPA Calculator", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                Text(
+                    "Calculate semester GPA and projected CGPA.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+        }
+        ThemedSegmentedControl(
+            options = listOf("Courses", "Projected"),
+            selectedIndex = calculatorPagerState.currentPage,
+            onSelected = { index ->
+                scope.launch {
+                    calculatorPagerState.animateScrollToPage(index)
+                }
+            }
+        )
+        HorizontalPager(
+            state = calculatorPagerState,
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 128.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                item {
+                    if (page == 0) {
+                        CourseGpaCalculatorCard()
+                    } else {
+                        ProjectedCgpaCalculatorCard()
+                    }
+                }
+                if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+                    item {
+                        StartIoBannerAd()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CourseGpaCalculatorCard() {
+    var nextId by rememberSaveable { mutableIntStateOf(6) }
+    var courses by remember {
+        mutableStateOf((1..5).map { CgpaCourseInput(id = it) })
+    }
+    val totalCredits = courses.sumOf { it.credits.toDoubleOrNull() ?: 0.0 }
+    val weightedPoints = courses.sumOf { row ->
+        (row.credits.toDoubleOrNull() ?: 0.0) * (GradePoints[row.grade] ?: 0.0)
+    }
+    val gpa = if (totalCredits > 0.0) weightedPoints / totalCredits else null
+
+    AcademicCard {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Course GPA", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                    Text("Add courses, credits, and expected grades.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                ResultPill(label = "GPA", value = gpa?.formatCgpa() ?: "--")
+            }
+            courses.forEach { row ->
+                CourseGpaInputRow(
+                    row = row,
+                    onChanged = { updated ->
+                        courses = courses.map { if (it.id == updated.id) updated else it }
+                    },
+                    onRemove = {
+                        courses = courses.filterNot { it.id == row.id }.ifEmpty {
+                            listOf(CgpaCourseInput(id = nextId).also { nextId += 1 })
+                        }
+                    }
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = {
+                        courses = courses + CgpaCourseInput(id = nextId)
+                        nextId += 1
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Add Course")
+                }
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(totalCredits.formatCredits(), fontWeight = FontWeight.Black)
+                        Text("Credits", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CourseGpaInputRow(
+    row: CgpaCourseInput,
+    onChanged: (CgpaCourseInput) -> Unit,
+    onRemove: () -> Unit
+) {
+    AcademicCard(contentPadding = PaddingValues(12.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = row.course,
+                    onValueChange = { onChanged(row.copy(course = it.take(32))) },
+                    label = { Text("Course") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                IconButton(onClick = onRemove) {
+                    Icon(Icons.Default.Delete, contentDescription = "Remove course")
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DropdownChoice(
+                    label = "Grade",
+                    value = row.grade,
+                    options = GradePoints.keys.toList(),
+                    modifier = Modifier.weight(1f),
+                    onSelected = { onChanged(row.copy(grade = it)) }
+                )
+                DropdownChoice(
+                    label = "Credits",
+                    value = row.credits,
+                    options = CreditOptions,
+                    modifier = Modifier.weight(1f),
+                    onSelected = { onChanged(row.copy(credits = it)) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjectedCgpaCalculatorCard() {
+    var currentCgpa by rememberSaveable { mutableStateOf("") }
+    var completedCredits by rememberSaveable { mutableStateOf("") }
+    var semesterGpa by rememberSaveable { mutableStateOf("") }
+    var semesterCredits by rememberSaveable { mutableStateOf("") }
+    val currentCgpaValue = currentCgpa.toDoubleOrNull()?.coerceIn(0.0, 10.0)
+    val completedCreditsValue = completedCredits.toDoubleOrNull()?.coerceAtLeast(0.0)
+    val semesterGpaValue = semesterGpa.toDoubleOrNull()?.coerceIn(0.0, 10.0)
+    val semesterCreditsValue = semesterCredits.toDoubleOrNull()?.coerceAtLeast(0.0)
+    val projected = if (
+        currentCgpaValue != null &&
+        completedCreditsValue != null &&
+        semesterGpaValue != null &&
+        semesterCreditsValue != null &&
+        completedCreditsValue + semesterCreditsValue > 0.0
+    ) {
+        ((currentCgpaValue * completedCreditsValue) + (semesterGpaValue * semesterCreditsValue)) /
+            (completedCreditsValue + semesterCreditsValue)
+    } else {
+        null
+    }
+
+    AcademicCard {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Projected CGPA", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                    Text("Estimate CGPA after this semester.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                ResultPill(label = "CGPA", value = projected?.formatCgpa() ?: "--")
+            }
+            NumericToolField("Current CGPA", currentCgpa) { currentCgpa = it }
+            NumericToolField("Completed credits", completedCredits) { completedCredits = it }
+            NumericToolField("This semester GPA", semesterGpa) { semesterGpa = it }
+            NumericToolField("This semester credits", semesterCredits) { semesterCredits = it }
+        }
+    }
+}
+
+@Composable
+private fun NumericToolField(label: String, value: String, onValueChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { input ->
+            onValueChange(input.filter { it.isDigit() || it == '.' }.take(6))
+        },
+        label = { Text(label) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        )
+    )
+}
+
+@Composable
+private fun DropdownChoice(
+    label: String,
+    value: String,
+    options: List<String>,
+    modifier: Modifier = Modifier,
+    onSelected: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = modifier) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .clickable { expanded = true },
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(value, fontWeight = FontWeight.Black)
+                }
+                Icon(Icons.Default.ArrowDropDown, contentDescription = "Choose $label")
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option) },
+                    onClick = {
+                        expanded = false
+                        onSelected(option)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResultPill(label: String, value: String) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.44f))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+private val GradePoints = linkedMapOf(
+    "S" to 10.0,
+    "A" to 9.0,
+    "B" to 8.0,
+    "C" to 7.0,
+    "D" to 6.0,
+    "E" to 5.0,
+    "F" to 0.0,
+    "N" to 0.0
+)
+
+private val CreditOptions = listOf("1", "1.5", "2", "3", "4", "5", "20")
+
+private fun Double.formatCgpa(): String =
+    "%.2f".format(Locale.US, this)
+
+@Composable
 private fun StartIoBannerAd() {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -3087,7 +3948,7 @@ private fun ProfileHeader(
             )
             IconButton(onClick = onOpenChangelog) {
                 Icon(
-                    Icons.Default.EventNote,
+                    Icons.AutoMirrored.Filled.EventNote,
                     contentDescription = "Open changelog",
                     tint = MaterialTheme.colorScheme.onBackground
                 )
@@ -3487,7 +4348,7 @@ private fun PortalSettingsCard(onOpenPortal: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                SettingsIconChip(icon = Icons.Default.OpenInNew)
+                SettingsIconChip(icon = Icons.AutoMirrored.Filled.OpenInNew)
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Full VTOP", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
                     Text(
@@ -3530,7 +4391,7 @@ private fun UpdateSettingsCard(
                     }
                 }
                 IconButton(onClick = onOpenChangelog) {
-                    Icon(Icons.Default.EventNote, contentDescription = "Open changelog")
+                    Icon(Icons.AutoMirrored.Filled.EventNote, contentDescription = "Open changelog")
                 }
             }
             Button(
@@ -3649,24 +4510,19 @@ private fun ThemePreviewTile(
             .size(width = 68.dp, height = 78.dp)
             .clickable(onClick = onClick),
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (selected) 0.32f else 0.22f),
+        color = if (selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                .blendForFlatSurface(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.background.luminance() < 0.5f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
         border = BorderStroke(
             if (selected) 2.dp else 1.dp,
-            if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.16f)
+            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
         )
     ) {
         Column(
             modifier = Modifier
-                .background(
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = if (selected) 0.16f else 0.08f),
-                            accent.copy(alpha = if (selected) 0.08f else 0.04f),
-                            Color.White.copy(alpha = 0.02f)
-                        )
-                    ),
-                    shape = shape
-                )
                 .padding(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(7.dp)
@@ -3762,7 +4618,7 @@ private fun LogoutSettingsButton(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                Icons.Default.Logout,
+                Icons.AutoMirrored.Filled.Logout,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.error,
                 modifier = Modifier.size(18.dp)
@@ -3775,41 +4631,6 @@ private fun LogoutSettingsButton(
                 fontWeight = FontWeight.Black,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-@Composable
-private fun BackgroundKeepAliveCard(
-    enabled: Boolean,
-    onEnabledChange: (Boolean) -> Unit
-) {
-    AcademicCard(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = "Keep VTOP online",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Black
-                )
-                Text(
-                    text = "Runs a foreground service with a persistent notification.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            Switch(
-                checked = enabled,
-                onCheckedChange = onEnabledChange,
-                colors = gammaSwitchColors()
             )
         }
     }
@@ -4348,13 +5169,6 @@ private fun ThemeToggleButton(darkMode: Boolean, onToggleTheme: () -> Unit) {
 }
 
 @Composable
-private fun LogoutButton(onLogout: () -> Unit) {
-    IconButton(onClick = onLogout) {
-        Icon(Icons.Default.Logout, contentDescription = "Log out")
-    }
-}
-
-@Composable
 private fun StatusChip(text: String) {
     Surface(
         shape = CircleShape,
@@ -4396,70 +5210,38 @@ private fun GlassPanel(
     borderTint: Color = MaterialTheme.colorScheme.primary,
     content: @Composable () -> Unit
 ) {
-    val transition = rememberInfiniteTransition(label = "glass-panel")
-    val sheenPhase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = (PI * 2).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 7200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "glass-sheen"
-    )
-    val pulse by transition.animateFloat(
-        initialValue = 0.72f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3400, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glass-pulse"
-    )
-    val accent = MaterialTheme.colorScheme.primary
-    val driftX = sin(sheenPhase) * 260f
-    val driftY = cos(sheenPhase) * 90f
-    val start = Offset(x = -160f + driftX, y = -180f + driftY)
-    val end = Offset(x = 460f + driftX, y = 520f + driftY)
-
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val containerColor = baseTint.blendForFlatSurface(MaterialTheme.colorScheme.surface, isDark)
+    val outlineColor = if (borderTint == MaterialTheme.colorScheme.primary) {
+        MaterialTheme.colorScheme.outline
+    } else {
+        borderTint
+    }
     Surface(
         modifier = modifier,
         shape = shape,
-        color = baseTint.copy(alpha = 0.48f),
-        border = BorderStroke(
-            1.dp,
-            Brush.linearGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.34f * pulse),
-                    borderTint.copy(alpha = 0.54f * pulse),
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)
-                ),
-                start = Offset.Zero,
-                end = Offset.Infinite
-            )
-        ),
+        color = containerColor,
+        border = BorderStroke(1.dp, outlineColor.copy(alpha = if (isDark) 0.72f else 0.88f)),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
         Box(
-            modifier = Modifier
-                .background(
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.11f * pulse),
-                            accent.copy(alpha = 0.10f * pulse),
-                            Color.White.copy(alpha = 0.035f),
-                            baseTint.copy(alpha = 0.16f)
-                        ),
-                        start = start,
-                        end = end
-                    ),
-                    shape = shape
-                )
-                .padding(contentPadding)
+            modifier = Modifier.padding(contentPadding)
         ) {
             content()
         }
     }
+}
+
+private fun Color.blendForFlatSurface(fallback: Color, isDark: Boolean): Color {
+    if (alpha >= 0.96f) return this
+    val background = if (isDark) Color(0xFF101010) else Color.White
+    return Color(
+        red = red * alpha + background.red * (1f - alpha),
+        green = green * alpha + background.green * (1f - alpha),
+        blue = blue * alpha + background.blue * (1f - alpha),
+        alpha = 1f
+    ).takeUnless { it == Color.Transparent } ?: fallback
 }
 
 @Composable
@@ -4486,309 +5268,6 @@ private fun EmptyState(text: String) {
         Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-
-@Composable
-private fun FullPortalScreen(
-    cookieHeaders: List<String>,
-    portalStartUrl: String,
-    onHomeRequested: () -> String,
-    onLogout: () -> Unit,
-    onPortalHtml: (String, String) -> Unit
-) {
-    val context = LocalContext.current
-    val portalUrl = portalStartUrl
-    val captureBridge = remember(onPortalHtml) {
-        PortalCaptureBridge(onPortalHtml)
-    }
-    val webView = remember { mutableStateOf<WebView?>(null) }
-    var loadingPortal by remember { mutableStateOf(true) }
-    var portalError by remember { mutableStateOf<String?>(null) }
-    Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = {
-                val createdWebView = WebView(context)
-                createdWebView.apply {
-                    addJavascriptInterface(captureBridge, "VtopCapture")
-                    webChromeClient = WebChromeClient()
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(view: WebView, url: String) {
-                            super.onPageFinished(view, url)
-                            loadingPortal = false
-                            portalError = null
-                            view.captureAfterLoad()
-                            view.activateVtopShellIfBlank()
-                        }
-
-                        override fun onReceivedError(
-                            view: WebView,
-                            request: WebResourceRequest,
-                            error: WebResourceError
-                        ) {
-                            super.onReceivedError(view, request, error)
-                            if (request.isForMainFrame) {
-                                loadingPortal = false
-                                portalError = error.description?.toString()
-                                    ?: "VTOP could not be loaded."
-                            }
-                        }
-                    }
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.databaseEnabled = true
-                    settings.loadsImagesAutomatically = true
-                    settings.useWideViewPort = true
-                    settings.loadWithOverviewMode = true
-                    settings.builtInZoomControls = true
-                    settings.displayZoomControls = false
-                    settings.javaScriptCanOpenWindowsAutomatically = true
-                    settings.setSupportMultipleWindows(false)
-                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                    settings.userAgentString = vtopDesktopUserAgent
-                    loadingPortal = true
-                    portalError = null
-                    syncVtopCookiesAndLoad(portalUrl, cookieHeaders)
-                }.also { webView.value = it }
-            },
-            update = { view ->
-                view.syncVtopCookies(cookieHeaders)
-                if (view.url.isNullOrBlank()) {
-                    loadingPortal = true
-                    portalError = null
-                    view.syncVtopCookiesAndLoad(portalUrl, cookieHeaders)
-                }
-            }
-        )
-        if (loadingPortal) {
-            Surface(
-                modifier = Modifier.align(Alignment.Center),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp))
-                    Text("Loading VTOP")
-                }
-            }
-        }
-        portalError?.let { error ->
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(18.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("VTOP did not load", fontWeight = FontWeight.Black)
-                    Text(
-                        text = error,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Button(onClick = {
-                        loadingPortal = true
-                        portalError = null
-                        webView.value?.syncVtopCookiesAndLoad(portalUrl, cookieHeaders)
-                    }) {
-                        Text("Retry")
-                    }
-                }
-            }
-        }
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            FloatingActionButton(onClick = { webView.value?.loadUrl(onHomeRequested()) }) {
-                Icon(Icons.Default.Home, contentDescription = "VTOP home")
-            }
-            FloatingActionButton(onClick = {
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(portalUrl)))
-            }) {
-                Icon(Icons.Default.OpenInNew, contentDescription = "Open VTOP in browser")
-            }
-            FloatingActionButton(onClick = { webView.value?.reload() }) {
-                Icon(Icons.Default.Refresh, contentDescription = "Reload VTOP")
-            }
-            FloatingActionButton(onClick = onLogout) {
-                Icon(Icons.Default.Logout, contentDescription = "Log out")
-            }
-        }
-    }
-}
-
-private class PortalCaptureBridge(
-    private val onPortalHtml: (String, String) -> Unit
-) {
-    @JavascriptInterface
-    fun capture(html: String, url: String) {
-        onPortalHtml(html, url)
-    }
-}
-
-private fun WebView.captureAfterLoad() {
-    Handler(Looper.getMainLooper()).postDelayed({
-        evaluateJavascript(
-            """
-                (function() {
-                  if (window.VtopCapture) {
-                    window.VtopCapture.capture(document.documentElement.outerHTML, window.location.href);
-                  }
-                })();
-            """.trimIndent(),
-            null
-        )
-    }, 1200)
-}
-
-private fun WebView.activateVtopShellIfBlank() {
-    Handler(Looper.getMainLooper()).postDelayed({
-        evaluateJavascript(
-            """
-                (function() {
-                  if (window.__gammaVtopShellActivated) return "already";
-
-                  function isVisible(element) {
-                    if (!element) return false;
-                    var style = window.getComputedStyle(element);
-                    var rect = element.getBoundingClientRect();
-                    return style.display !== "none" &&
-                      style.visibility !== "hidden" &&
-                      rect.width > 0 &&
-                      rect.height > 0;
-                  }
-
-                  function visibleTextLength() {
-                    var candidates = [
-                      "#page-content-wrapper",
-                      "#pageContent",
-                      "#content",
-                      "#main-content",
-                      ".page-content",
-                      ".content-wrapper",
-                      "main"
-                    ];
-                    var text = "";
-                    candidates.forEach(function(selector) {
-                      var element = document.querySelector(selector);
-                      if (isVisible(element)) text += " " + element.innerText;
-                    });
-                    if (!text.trim()) text = document.body.innerText || "";
-                    text = text
-                      .replace(/VIT/g, "")
-                      .replace(/Bhopal Campus/g, "")
-                      .replace(/Home/g, "")
-                      .replace(/Quick Links/g, "")
-                      .replace(/\s+/g, " ")
-                      .trim();
-                    return text.length;
-                  }
-
-                  if (visibleTextLength() > 120) return "content-visible";
-                  window.__gammaVtopShellActivated = true;
-
-                  function clickElement(element) {
-                    if (!element || !isVisible(element)) return false;
-                    element.dispatchEvent(new MouseEvent("click", {
-                      bubbles: true,
-                      cancelable: true,
-                      view: window
-                    }));
-                    if (typeof element.click === "function") element.click();
-                    return true;
-                  }
-
-                  function closestClickable(element) {
-                    while (element && element !== document.body) {
-                      var tag = (element.tagName || "").toLowerCase();
-                      if (tag === "a" || tag === "button" || element.getAttribute("onclick")) return element;
-                      element = element.parentElement;
-                    }
-                    return null;
-                  }
-
-                  var homeIcon = document.querySelector(
-                    ".fa-home, .bi-house, .bi-house-door, [class*='home'], [title*='Home' i], [aria-label*='Home' i]"
-                  );
-                  if (clickElement(closestClickable(homeIcon))) return "home-clicked";
-
-                  var menuIcons = Array.prototype.slice.call(document.querySelectorAll(
-                    ".fa-bars, .bi-list, [class*='menu'], [data-bs-toggle='offcanvas'], [aria-controls*='menu' i]"
-                  ));
-                  for (var i = 0; i < menuIcons.length; i++) {
-                    if (clickElement(closestClickable(menuIcons[i]))) return "menu-clicked";
-                  }
-
-                  var clickable = Array.prototype.slice.call(document.querySelectorAll("a, button"))
-                    .filter(function(element) {
-                      var label = (element.innerText || element.getAttribute("title") || element.getAttribute("aria-label") || "").toLowerCase();
-                      return label.indexOf("home") >= 0 || label.indexOf("menu") >= 0 || label.indexOf("quick") >= 0;
-                    })[0];
-                  if (clickElement(clickable)) return "label-clicked";
-
-                  return "blank-no-target";
-                })();
-            """.trimIndent(),
-            null
-        )
-    }, 1800)
-}
-
-private fun WebView.syncVtopCookies(cookieHeaders: List<String>) {
-    CookieManager.getInstance().apply {
-        setAcceptCookie(true)
-        setAcceptThirdPartyCookies(this@syncVtopCookies, true)
-        cookieHeaders.forEach { cookie ->
-            setCookie(vtopCookieUrl, cookie)
-        }
-        flush()
-    }
-}
-
-private fun WebView.syncVtopCookiesAndLoad(
-    url: String,
-    cookieHeaders: List<String>
-) {
-    val cookieManager = CookieManager.getInstance()
-    cookieManager.setAcceptCookie(true)
-    cookieManager.setAcceptThirdPartyCookies(this, true)
-
-    if (cookieHeaders.isEmpty()) {
-        loadUrl(url)
-        return
-    }
-
-    var pendingCookies = cookieHeaders.size
-    cookieHeaders.forEach { cookie ->
-        cookieManager.setCookie(vtopCookieUrl, cookie) {
-            pendingCookies -= 1
-            if (pendingCookies == 0) {
-                cookieManager.flush()
-                Handler(Looper.getMainLooper()).post {
-                    loadUrl(url)
-                }
-            }
-        }
-    }
-}
-
-private const val vtopCookieUrl = "https://vtop.vitbhopal.ac.in"
-private const val vtopDesktopUserAgent =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
 private suspend fun clearWebViewCookies() {
     suspendCancellableCoroutine { continuation ->

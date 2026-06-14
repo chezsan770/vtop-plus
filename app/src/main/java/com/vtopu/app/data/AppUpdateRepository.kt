@@ -1,6 +1,5 @@
 package com.vtopu.app.data
 
-import com.vtopu.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -11,7 +10,7 @@ class AppUpdateRepository {
     private val client = OkHttpClient()
 
     val isConfigured: Boolean
-        get() = BuildConfig.SUPABASE_URL.isNotBlank() && BuildConfig.SUPABASE_ANON_KEY.isNotBlank()
+        get() = SupabaseConfig.isConfigured
 
     suspend fun fetchLatestUpdate(): Result<AppUpdate?> = withContext(Dispatchers.IO) {
         if (!isConfigured) {
@@ -19,14 +18,13 @@ class AppUpdateRepository {
         }
 
         runCatching {
-            val endpoint = BuildConfig.SUPABASE_URL.trimEnd('/') +
+            val endpoint = SupabaseConfig.baseUrl +
                 "/rest/v1/app_updates?is_active=eq.true&order=version_code.desc&limit=1"
 
             val request = Request.Builder()
                 .url(endpoint)
-                .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                .addSupabaseHeaders()
                 .get()
-                .addLegacyAuthorizationIfNeeded()
                 .build()
 
             client.newCall(request).execute().use { response ->
@@ -45,12 +43,5 @@ class AppUpdateRepository {
                 )
             }
         }
-    }
-
-    private fun Request.Builder.addLegacyAuthorizationIfNeeded(): Request.Builder {
-        if (!BuildConfig.SUPABASE_ANON_KEY.startsWith("sb_publishable_")) {
-            addHeader("Authorization", "Bearer ${BuildConfig.SUPABASE_ANON_KEY}")
-        }
-        return this
     }
 }

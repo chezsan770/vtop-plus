@@ -12,16 +12,15 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 class VtopRepository(context: Context) {
     private val baseUrl = "https://vtop.vitbhopal.ac.in"
     private val cookieJar = PersistentCookieJar(SessionCookieStore(context.applicationContext))
     private val client = OkHttpClient.Builder()
         .cookieJar(cookieJar)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .build()
-    private val publicClient = OkHttpClient.Builder()
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
@@ -40,21 +39,6 @@ class VtopRepository(context: Context) {
     private var selectedGradeSemesterId: String? = null
     private var currentAuthorizedId: String? = null
     private var currentCsrf: String? = null
-
-    suspend fun loadPublicSpotlight(): List<SpotlightItem> = withContext(Dispatchers.IO) {
-        runCatching {
-            val request = Request.Builder()
-                .url("$baseUrl/vtop/login")
-                .header("User-Agent", userAgent)
-                .get()
-                .build()
-            val html = publicClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) error("HTTP ${response.code}")
-                response.body?.string().orEmpty()
-            }
-            VtopParser.parseSpotlight(html)
-        }.getOrDefault(emptyList())
-    }
 
     suspend fun prepareLogin(): LoginChallenge? = withContext(Dispatchers.IO) {
         runCatching {
@@ -149,7 +133,7 @@ class VtopRepository(context: Context) {
             authenticatedPortalUrl = lastResponseUrl?.takeUnless { it.contains("/vtop/login", ignoreCase = true) }
             rememberPage(html)
 
-            val profile = VtopParser.parseDashboard(html).profile
+            val profile = parseSnapshot(html).profile
             currentAuthorizedId = savedUsername?.uppercase()
                 ?: profile.registrationNumber?.uppercase()
             fetchAcademicData()
@@ -188,7 +172,7 @@ class VtopRepository(context: Context) {
                     ?: authenticatedPortalUrl
                 rememberPage(html)
                 if (currentAuthorizedId.isNullOrBlank()) {
-                    currentAuthorizedId = VtopParser.parseDashboard(html).profile.registrationNumber?.uppercase()
+                    currentAuthorizedId = parseSnapshot(html).profile.registrationNumber?.uppercase()
                 }
                 SessionKeepAliveResult.Active
             }
@@ -208,11 +192,6 @@ class VtopRepository(context: Context) {
         selectedTimetableSemesterId = timetableSemesterId
         selectedGradeSemesterId = attendanceSemesterId
         fetchAcademicData()
-        buildDashboard()
-    }
-
-    suspend fun capturePortalPage(html: String, url: String): DashboardSnapshot = withContext(Dispatchers.Default) {
-        rememberPage(html = html, url = url)
         buildDashboard()
     }
 
@@ -414,12 +393,7 @@ class VtopRepository(context: Context) {
         attendanceMenu?.let { menu ->
             selectedAttendanceSemesterId = nextAttendanceSemesterId
             val attendanceDetailHtml = attendanceDetailDeferred.await().getOrDefault("")
-            val attendanceCourses = VtopParser.parseDashboard(
-                html = menu + attendanceDetailHtml,
-                selectedAttendanceSemesterId = selectedAttendanceSemesterId,
-                selectedTimetableSemesterId = selectedTimetableSemesterId,
-                selectedGradeSemesterId = selectedGradeSemesterId
-            ).attendance
+            val attendanceCourses = parseSnapshot(menu + attendanceDetailHtml).attendance
             val attendanceRecordHtml = nextAttendanceSemesterId?.let { semesterId ->
                 attendanceCourses
                     .filter { course -> !course.detailCourseId.isNullOrBlank() && !course.detailCourseType.isNullOrBlank() }
@@ -477,8 +451,7 @@ class VtopRepository(context: Context) {
             "_csrf" to csrf,
             "semesterSubId" to semesterId,
             "authorizedID" to authorizedId,
-            "x" to java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
-                .format(java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+            "x" to utcRequestTimestamp()
         )
 
     private fun attendanceDetailFields(
@@ -496,9 +469,11 @@ class VtopRepository(context: Context) {
             "courseId" to courseId,
             "courseType" to courseType,
             "authorizedID" to authorizedId,
-            "x" to java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
-                .format(java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+            "x" to utcRequestTimestamp()
         )
+
+    private fun utcRequestTimestamp(): String =
+        ZonedDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.RFC_1123_DATE_TIME)
 
     private fun rememberPage(html: String, url: String = "") {
         if (html.isBlank()) return
@@ -516,53 +491,25 @@ class VtopRepository(context: Context) {
     }
 
     private fun buildDashboard(): DashboardSnapshot {
-        val base = VtopParser.parseDashboard(
-            html = listOf(lastDashboardHtml, lastAttendanceHtml, lastTimetableHtml, lastMarksHtml, lastGradesHtml, lastGradeHistoryHtml)
+        val base = parseSnapshot(
+            listOf(lastDashboardHtml, lastAttendanceHtml, lastTimetableHtml, lastMarksHtml, lastGradesHtml, lastGradeHistoryHtml)
                 .firstOrNull { !it.isNullOrBlank() }
-                .orEmpty(),
-            selectedAttendanceSemesterId = selectedAttendanceSemesterId,
-            selectedTimetableSemesterId = selectedTimetableSemesterId,
-            selectedGradeSemesterId = selectedGradeSemesterId
+                .orEmpty()
         )
         val attendanceSnapshot = lastAttendanceHtml?.let {
-            VtopParser.parseDashboard(
-                html = it,
-                selectedAttendanceSemesterId = selectedAttendanceSemesterId,
-                selectedTimetableSemesterId = selectedTimetableSemesterId,
-                selectedGradeSemesterId = selectedGradeSemesterId
-            )
+            parseSnapshot(it)
         }
         val timetableSnapshot = lastTimetableHtml?.let {
-            VtopParser.parseDashboard(
-                html = it,
-                selectedAttendanceSemesterId = selectedAttendanceSemesterId,
-                selectedTimetableSemesterId = selectedTimetableSemesterId,
-                selectedGradeSemesterId = selectedGradeSemesterId
-            )
+            parseSnapshot(it)
         }
         val marksSnapshot = lastMarksHtml?.let {
-            VtopParser.parseDashboard(
-                html = it,
-                selectedAttendanceSemesterId = selectedAttendanceSemesterId,
-                selectedTimetableSemesterId = selectedTimetableSemesterId,
-                selectedGradeSemesterId = selectedGradeSemesterId
-            )
+            parseSnapshot(it)
         }
         val gradesSnapshot = lastGradesHtml?.let {
-            VtopParser.parseDashboard(
-                html = it,
-                selectedAttendanceSemesterId = selectedAttendanceSemesterId,
-                selectedTimetableSemesterId = selectedTimetableSemesterId,
-                selectedGradeSemesterId = selectedGradeSemesterId
-            )
+            parseSnapshot(it)
         }
         val gradeHistorySnapshot = lastGradeHistoryHtml?.let {
-            VtopParser.parseDashboard(
-                html = it,
-                selectedAttendanceSemesterId = selectedAttendanceSemesterId,
-                selectedTimetableSemesterId = selectedTimetableSemesterId,
-                selectedGradeSemesterId = selectedGradeSemesterId
-            )
+            parseSnapshot(it)
         }
 
         return base.copy(
@@ -603,6 +550,14 @@ class VtopRepository(context: Context) {
             selectedGradeSemesterId = selectedGradeSemesterId
         ).withReadableNextClassName()
     }
+
+    private fun parseSnapshot(html: String): DashboardSnapshot =
+        VtopParser.parseDashboard(
+            html = html,
+            selectedAttendanceSemesterId = selectedAttendanceSemesterId,
+            selectedTimetableSemesterId = selectedTimetableSemesterId,
+            selectedGradeSemesterId = selectedGradeSemesterId
+        )
 }
 
 private fun mergedProfile(vararg profiles: UserProfile?): UserProfile {

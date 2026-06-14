@@ -1,6 +1,5 @@
 package com.vtopu.app.data
 
-import com.vtopu.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -13,7 +12,7 @@ class FeatureRequestRepository {
     private val client = OkHttpClient()
 
     val isConfigured: Boolean
-        get() = BuildConfig.SUPABASE_URL.isNotBlank() && BuildConfig.SUPABASE_ANON_KEY.isNotBlank()
+        get() = SupabaseConfig.isConfigured
 
     suspend fun submitFeatureRequest(payload: FeatureRequestPayload): Result<Unit> = withContext(Dispatchers.IO) {
         if (!isConfigured) {
@@ -21,7 +20,7 @@ class FeatureRequestRepository {
         }
 
         runCatching {
-            val endpoint = BuildConfig.SUPABASE_URL.trimEnd('/') + "/rest/v1/feature_requests"
+            val endpoint = SupabaseConfig.baseUrl + "/rest/v1/feature_requests"
             val json = JSONObject()
                 .put("title", payload.title)
                 .put("description", payload.description)
@@ -34,22 +33,14 @@ class FeatureRequestRepository {
 
             val request = Request.Builder()
                 .url(endpoint)
-                .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                .addSupabaseHeaders()
                 .addHeader("Prefer", "return=minimal")
                 .post(json.toRequestBody("application/json".toMediaType()))
-                .addLegacyAuthorizationIfNeeded()
                 .build()
 
             client.newCall(request).execute().use { response ->
                 check(response.isSuccessful) { "Supabase request failed with HTTP ${response.code}." }
             }
         }
-    }
-
-    private fun Request.Builder.addLegacyAuthorizationIfNeeded(): Request.Builder {
-        if (!BuildConfig.SUPABASE_ANON_KEY.startsWith("sb_publishable_")) {
-            addHeader("Authorization", "Bearer ${BuildConfig.SUPABASE_ANON_KEY}")
-        }
-        return this
     }
 }

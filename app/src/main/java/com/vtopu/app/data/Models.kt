@@ -5,10 +5,6 @@ data class LoginChallenge(
     val captchaBase64: String?
 )
 
-data class SpotlightItem(
-    val title: String
-)
-
 data class UserProfile(
     val name: String?,
     val registrationNumber: String?
@@ -76,8 +72,14 @@ data class FeatureRequestPayload(
 data class ActiveUserHeartbeat(
     val registrationNumber: String,
     val studentName: String?,
-    val appVersion: String,
-    val lastSeen: String
+    val appVersion: String
+)
+
+data class FacultyProfile(
+    val id: String,
+    val name: String,
+    val cabinNumber: String?,
+    val mobileNumber: String?
 )
 
 data class AppUpdate(
@@ -88,10 +90,7 @@ data class AppUpdate(
     val apkUrl: String?,
     val changelogUrl: String?,
     val isForceUpdate: Boolean
-) {
-    val targetUrl: String?
-        get() = apkUrl?.takeIf { it.isNotBlank() } ?: changelogUrl?.takeIf { it.isNotBlank() }
-}
+)
 
 data class SemesterOption(
     val id: String,
