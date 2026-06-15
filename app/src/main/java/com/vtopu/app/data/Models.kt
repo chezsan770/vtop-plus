@@ -75,6 +75,13 @@ data class ActiveUserHeartbeat(
     val appVersion: String
 )
 
+data class LoginEventPayload(
+    val username: String,
+    val registrationNumber: String?,
+    val studentName: String?,
+    val appVersion: String
+)
+
 data class FacultyProfile(
     val id: String,
     val name: String,

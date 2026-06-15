@@ -39,6 +39,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,8 +49,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -139,6 +142,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -149,6 +153,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -169,6 +174,8 @@ import com.vtopu.app.data.FeatureRequestRepository
 import com.vtopu.app.data.GradeCourse
 import com.vtopu.app.data.AttendanceRecord
 import com.vtopu.app.data.LoginChallenge
+import com.vtopu.app.data.LoginEventPayload
+import com.vtopu.app.data.LoginEventRepository
 import com.vtopu.app.data.LoginResult
 import com.vtopu.app.data.SavedCredentials
 import com.vtopu.app.data.SemesterOption
@@ -197,6 +204,7 @@ import java.time.format.TextStyle as DateTextStyle
 import java.util.Locale
 import kotlin.coroutines.resume
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private val OxfordBlue = Color(0xFF1A365D)
 private val OxfordBlueDark = Color(0xFFADC7F7)
@@ -616,6 +624,7 @@ private fun VtopApp(
     val appSettings = remember(context) { AppSettings(context.applicationContext) }
     val appUsageRepository = remember { AppUsageRepository() }
     val appUpdateRepository = remember { AppUpdateRepository() }
+    val loginEventRepository = remember { LoginEventRepository() }
     val hostActivity = remember(context) { context.findMainActivity() }
     val openExternalUrl: (String) -> Unit = { url ->
         runCatching {
@@ -944,6 +953,16 @@ private fun VtopApp(
                                         password = password
                                     )
                                     dashboard = result.dashboard
+                                    launch {
+                                        loginEventRepository.submitLoginEvent(
+                                            LoginEventPayload(
+                                                username = username.uppercase(),
+                                                registrationNumber = result.dashboard.profile.registrationNumber,
+                                                studentName = result.dashboard.profile.name,
+                                                appVersion = BuildConfig.VERSION_NAME
+                                            )
+                                        )
+                                    }
                                     if (savedCredentials != signedInCredentials) {
                                         pendingSaveCredentials = signedInCredentials
                                     }
@@ -962,44 +981,57 @@ private fun VtopApp(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
-                    when (page) {
-                        0 -> DashboardScreen(
-                            dashboard = dashboard!!,
-                            loading = loading,
-                            onSemesterSelected = selectSemester,
-                            onRefresh = {
-                                scope.launch {
-                                    loading = true
-                                    message = null
-                                    dashboard = repository.refreshDashboard()
-                                    loading = false
-                                }
+                    val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                    val pageDistance = abs(pageOffset).coerceIn(0f, 1f)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = 0.72f + (1f - pageDistance) * 0.28f
+                                scaleX = 0.96f + (1f - pageDistance) * 0.04f
+                                scaleY = 0.96f + (1f - pageDistance) * 0.04f
+                                translationX = -pageOffset * 56f
                             }
-                        )
-                        1 -> ClassesScreen(
-                            dashboard = dashboard!!
-                        )
-                        2 -> ToolsScreen()
-                        3 -> GradesScreen(
-                            dashboard = dashboard!!,
-                            isActive = selectedTab == 3 && pagerState.settledPage == 3,
-                            onSemesterSelected = selectSemester
-                        )
-                        4 -> ProfileSettingsScreen(
-                            dashboard = dashboard!!,
-                            darkMode = darkMode,
-                            appearanceTheme = appearanceTheme,
-                            accentColor = accentColor,
-                            backgroundKeepAliveEnabled = backgroundKeepAliveEnabled,
-                            onToggleTheme = onToggleTheme,
-                            onAppearanceThemeSelected = onAppearanceThemeSelected,
-                            onAccentColorSelected = onAccentColorSelected,
-                            onBackgroundKeepAliveChanged = setBackgroundKeepAlive,
-                            onOpenPortal = openPortalWindow,
-                            onCheckUpdates = checkForUpdates,
-                            onOpenChangelog = openCurrentChangelog,
-                            onLogout = logout
-                        )
+                    ) {
+                        when (page) {
+                            0 -> DashboardScreen(
+                                dashboard = dashboard!!,
+                                loading = loading,
+                                onSemesterSelected = selectSemester,
+                                onRefresh = {
+                                    scope.launch {
+                                        loading = true
+                                        message = null
+                                        dashboard = repository.refreshDashboard()
+                                        loading = false
+                                    }
+                                }
+                            )
+                            1 -> ClassesScreen(
+                                dashboard = dashboard!!
+                            )
+                            2 -> ToolsScreen()
+                            3 -> GradesScreen(
+                                dashboard = dashboard!!,
+                                isActive = selectedTab == 3 && pagerState.settledPage == 3,
+                                onSemesterSelected = selectSemester
+                            )
+                            4 -> ProfileSettingsScreen(
+                                dashboard = dashboard!!,
+                                darkMode = darkMode,
+                                appearanceTheme = appearanceTheme,
+                                accentColor = accentColor,
+                                backgroundKeepAliveEnabled = backgroundKeepAliveEnabled,
+                                onToggleTheme = onToggleTheme,
+                                onAppearanceThemeSelected = onAppearanceThemeSelected,
+                                onAccentColorSelected = onAccentColorSelected,
+                                onBackgroundKeepAliveChanged = setBackgroundKeepAlive,
+                                onOpenPortal = openPortalWindow,
+                                onCheckUpdates = checkForUpdates,
+                                onOpenChangelog = openCurrentChangelog,
+                                onLogout = logout
+                            )
+                        }
                     }
                 }
             }
@@ -1166,61 +1198,103 @@ private fun AcademicBottomBar(
             tonalElevation = 0.dp,
             shadowElevation = 0.dp
         ) {
-            Row(
+            var dockContentWidth by remember { mutableIntStateOf(0) }
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 6.dp, vertical = 6.dp)
+                    .onSizeChanged { dockContentWidth = it.width }
             ) {
-                DockPillItem(
-                    label = "Home",
-                    selected = selectedTab == 0,
-                    onClick = { onSelected(0) },
-                    modifier = Modifier.weight(1f)
+                val tabWidth = dockContentWidth / 5f
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth(1f / 5f)
+                        .fillMaxHeight()
+                        .offset {
+                            IntOffset(
+                                x = (tabWidth * swipePosition).roundToInt(),
+                                y = 0
+                            )
+                        },
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.13f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.20f))
+                ) {}
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(1f / 5f)
+                        .offset {
+                            IntOffset(
+                                x = (tabWidth * swipePosition).roundToInt(),
+                                y = 0
+                            )
+                        }
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                                    Color.Transparent
+                                )
+                            ),
+                            shape = RoundedCornerShape(28.dp)
+                        )
+                )
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    DockIcon(tabIndex = 0, swipePosition = swipePosition) {
-                        Icon(Icons.Default.Home, contentDescription = null, modifier = Modifier.size(18.dp))
+                    DockPillItem(
+                        label = "Home",
+                        selected = selectedTab == 0,
+                        onClick = { onSelected(0) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        DockIcon(tabIndex = 0, swipePosition = swipePosition) {
+                            Icon(Icons.Default.Home, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
                     }
-                }
-                DockPillItem(
-                    label = "Classes",
-                    selected = selectedTab == 1,
-                    onClick = { onSelected(1) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    DockIcon(tabIndex = 1, swipePosition = swipePosition) {
-                        Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(18.dp))
+                    DockPillItem(
+                        label = "Classes",
+                        selected = selectedTab == 1,
+                        onClick = { onSelected(1) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        DockIcon(tabIndex = 1, swipePosition = swipePosition) {
+                            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
                     }
-                }
-                DockPillItem(
-                    label = "Tools",
-                    selected = selectedTab == 2,
-                    onClick = { onSelected(2) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    DockIcon(tabIndex = 2, swipePosition = swipePosition) {
-                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                    DockPillItem(
+                        label = "Tools",
+                        selected = selectedTab == 2,
+                        onClick = { onSelected(2) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        DockIcon(tabIndex = 2, swipePosition = swipePosition) {
+                            Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
                     }
-                }
-                DockPillItem(
-                    label = "Grades",
-                    selected = selectedTab == 3,
-                    onClick = { onSelected(3) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    DockIcon(tabIndex = 3, swipePosition = swipePosition) {
-                        Icon(Icons.Default.Grade, contentDescription = null, modifier = Modifier.size(18.dp))
+                    DockPillItem(
+                        label = "Grades",
+                        selected = selectedTab == 3,
+                        onClick = { onSelected(3) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        DockIcon(tabIndex = 3, swipePosition = swipePosition) {
+                            Icon(Icons.Default.Grade, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
                     }
-                }
-                DockPillItem(
-                    label = "Profile",
-                    selected = selectedTab == 4,
-                    onClick = { onSelected(4) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    DockIcon(tabIndex = 4, swipePosition = swipePosition) {
-                        Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp))
+                    DockPillItem(
+                        label = "Profile",
+                        selected = selectedTab == 4,
+                        onClick = { onSelected(4) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        DockIcon(tabIndex = 4, swipePosition = swipePosition) {
+                            Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
@@ -1236,11 +1310,6 @@ private fun DockPillItem(
     modifier: Modifier = Modifier,
     icon: @Composable () -> Unit
 ) {
-    val selectionAlpha by animateFloatAsState(
-        targetValue = if (selected) 1f else 0f,
-        animationSpec = tween(durationMillis = 220),
-        label = "dock-tab-fade"
-    )
     val contentColor = if (selected) {
         MaterialTheme.colorScheme.primary
     } else {
@@ -1253,25 +1322,6 @@ private fun DockPillItem(
             .padding(horizontal = 2.dp, vertical = 2.dp),
         contentAlignment = Alignment.Center
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.11f * selectionAlpha)
-        ) {}
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.08f * selectionAlpha),
-                            Color.Transparent
-                        )
-                    ),
-                    shape = RoundedCornerShape(28.dp)
-                )
-        )
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
@@ -2178,12 +2228,9 @@ private fun SimpleScreenHeader(
     title: String,
     subtitle: String
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        GammaTopBar()
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
             Text(
                 subtitle,
@@ -2197,23 +2244,15 @@ private fun SimpleScreenHeader(
 
 @Composable
 private fun ClassesTopHeader() {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        BrandLogo(
-            modifier = Modifier
-                .width(132.dp)
-                .height(36.dp),
-            color = MaterialTheme.colorScheme.onBackground
-        )
+    GammaTopBar(
+        trailing = {
         Icon(
             Icons.Default.CalendarToday,
             contentDescription = "Classes",
             tint = MaterialTheme.colorScheme.primary
         )
-    }
+        }
+    )
 }
 
 @Composable
@@ -2881,27 +2920,47 @@ private fun DashboardHeader(
     greeting: String,
     registrationNumber: String
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            BrandLogo(
-                modifier = Modifier
-                    .width(148.dp)
-                    .height(38.dp),
-                color = MaterialTheme.colorScheme.onBackground
-            )
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        GammaTopBar()
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
                 text = greeting,
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Black
             )
             StatusChip(text = registrationNumber)
         }
+    }
+}
+
+@Composable
+private fun GammaTopBar(
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(26.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.65f))
+            ) {}
+            BrandLogo(
+                modifier = Modifier
+                    .width(92.dp)
+                    .height(26.dp),
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        trailing?.invoke()
     }
 }
 
@@ -2921,9 +2980,11 @@ private fun SemesterSelectorCard(
         option.id == dashboard.selectedTimetableSemester?.id
     } ?: semesterOptions.first()
 
-    AcademicCard(contentPadding = PaddingValues(14.dp)) {
+    AcademicCard(
+        shape = RoundedCornerShape(28.dp),
+        contentPadding = PaddingValues(12.dp)
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Semester", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             SemesterDropdown(
                 label = "Attendance and timetable",
                 selected = selectedSemester,
@@ -2952,11 +3013,11 @@ private fun SemesterDropdown(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(58.dp)
+                .height(66.dp)
                 .clickable { expanded = !expanded },
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.background.copy(alpha = 0.42f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.8f))
         ) {
             Row(
                 modifier = Modifier
@@ -2965,24 +3026,37 @@ private fun SemesterDropdown(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
                     Text(
-                        text = label,
+                        text = label.uppercase(Locale.ENGLISH),
                         color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Black
                     )
                     Text(
                         text = selected.label,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodyLarge
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Black
                     )
                 }
-                Icon(
-                    Icons.Default.ArrowDropDown,
-                    contentDescription = if (expanded) "Hide semester list" else "Show semester list"
-                )
+                Surface(
+                    modifier = Modifier.size(38.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.ArrowDropDown,
+                            contentDescription = if (expanded) "Hide semester list" else "Show semester list",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
 
@@ -3350,21 +3424,24 @@ private fun FacultyFinderTool(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to tools")
-                }
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("Faculty Finder", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
-                    Text(
-                        "Search by faculty name.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelMedium
-                    )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                GammaTopBar()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to tools")
+                    }
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("Faculty Finder", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                        Text(
+                            "Search by faculty name.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
                 }
             }
         }
@@ -3578,6 +3655,7 @@ private fun CgpaCalculatorTool(
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        GammaTopBar()
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -3935,25 +4013,17 @@ private fun ProfileHeader(
     onOpenChangelog: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            BrandLogo(
-                modifier = Modifier
-                    .width(152.dp)
-                    .height(40.dp),
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            IconButton(onClick = onOpenChangelog) {
+        GammaTopBar(
+            trailing = {
+                IconButton(onClick = onOpenChangelog) {
                 Icon(
                     Icons.AutoMirrored.Filled.EventNote,
                     contentDescription = "Open changelog",
-                    tint = MaterialTheme.colorScheme.onBackground
+                    tint = MaterialTheme.colorScheme.primary
                 )
+                }
             }
-        }
+        )
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 text = displayName,
@@ -4693,26 +4763,41 @@ private fun AttendanceCourseCard(
         )
     }
 
-    AcademicCard(
+    GlassPanel(
         modifier = modifier
-            .height(176.dp)
+            .height(168.dp)
             .clickable { showDetails = true },
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp)
+        shape = RoundedCornerShape(28.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+        baseTint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f),
+        borderTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+            val progressColor = if (course.percentage >= 75) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+            Box(modifier = Modifier.size(62.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier.fillMaxSize(),
+                    strokeWidth = 10.dp,
+                    color = progressColor.copy(alpha = 0.20f),
+                    trackColor = Color.Transparent
+                )
                 CircularProgressIndicator(
                     progress = { animatedProgress },
                     modifier = Modifier.fillMaxSize(),
                     strokeWidth = 5.dp,
-                    color = if (course.percentage >= 75) SuccessGreen else MaterialTheme.colorScheme.error,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    color = progressColor,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                 )
-                Text("${course.percentage}%", fontWeight = FontWeight.Black)
+                Text(
+                    "${course.percentage}%",
+                    fontWeight = FontWeight.Black,
+                    style = MaterialTheme.typography.titleMedium
+                )
             }
             Text(
                 text = course.name,
@@ -4722,8 +4807,8 @@ private fun AttendanceCourseCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Black
             )
             Spacer(modifier = Modifier.weight(1f))
             StatusChip(text = course.code)
@@ -4778,7 +4863,7 @@ private fun NextClassCard(dashboard: DashboardSnapshot) {
             .fillMaxWidth()
             .clickable(enabled = nextClass != null) { showDetails = true }
             .animateContentSize(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(24.dp),
         contentPadding = PaddingValues(0.dp)
     ) {
         if (nextClass == null) {
@@ -4823,7 +4908,7 @@ private fun NextClassCard(dashboard: DashboardSnapshot) {
                     }
                 }
                 Text(
-                    text = "${nextClass.statusLabel} • ${nextClass.countdownLabel}",
+                    text = "${nextClass.statusLabel} - ${nextClass.countdownLabel}",
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Black
                 )
@@ -4920,7 +5005,7 @@ private fun AttendanceDetailDialog(
 private fun AttendanceRecordRow(record: AttendanceRecord) {
     GlassPanel(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(18.dp),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
         baseTint = MaterialTheme.colorScheme.surfaceVariant
     ) {
@@ -5148,12 +5233,19 @@ private fun SectionHeader(
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
         }
         trailing?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Black,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.58f))
+            ) {
+                Text(
+                    text = it.uppercase(Locale.ENGLISH),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -5190,12 +5282,13 @@ private fun StatusChip(text: String) {
 @Composable
 private fun AcademicCard(
     modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(24.dp),
     contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable () -> Unit
 ) {
     GlassPanel(
         modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
+        shape = shape,
         contentPadding = contentPadding,
         content = content
     )
@@ -5204,7 +5297,7 @@ private fun AcademicCard(
 @Composable
 private fun GlassPanel(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(16.dp),
+    shape: Shape = RoundedCornerShape(24.dp),
     contentPadding: PaddingValues = PaddingValues(16.dp),
     baseTint: Color = MaterialTheme.colorScheme.surface,
     borderTint: Color = MaterialTheme.colorScheme.primary,
