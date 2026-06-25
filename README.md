@@ -4,7 +4,7 @@ Gamma is a Jetpack Compose Android companion app for the VIT Bhopal VTOP portal.
 
 ## Features
 
-- VTOP login with CAPTCHA support and optional saved credentials.
+- VTOP login comes with CAPTCHA support and optional saved credentials.
 - Dashboard with greeting, registration number, next class, and attendance grid.
 - Next class card with live ongoing-class progress and upcoming-class details.
 - Classes tab with timetable cards, class detail popups, and completed-class check marks.
