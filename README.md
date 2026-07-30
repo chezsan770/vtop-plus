@@ -13,7 +13,7 @@ Gamma is a Jetpack Compose Android companion app for the VIT Bhopal VTOP portal.
 - Profile/settings page with theme mode, appearance palettes, accent colors, logout, feature requests, and VTOP Online.
 - Full VTOP opens in a separate in-app portal window using the logged-in session cookies.
 - AMOLED dark UI with animated neon background and glass-style cards.
-- Start.io banner ads and rewarded-ad gate for VTOP Online, with no-ad fallback.
+- AdMob banner and native ads, with no-ad fallback for disabled unit IDs.
 - Supabase-backed feature request submissions and active-user heartbeat support.
 - In-app update metadata support through Supabase.
 
@@ -24,7 +24,7 @@ Gamma is a Jetpack Compose Android companion app for the VIT Bhopal VTOP portal.
 - OkHttp
 - Jsoup
 - AndroidX Biometric
-- Start.io Android SDK
+- Google Mobile Ads SDK
 - Supabase PostgREST
 
 ## Local Setup
@@ -35,10 +35,31 @@ Create `local.properties` in the project root. This file is intentionally ignore
 sdk.dir=C\:\\Users\\YOUR_NAME\\AppData\\Local\\Android\\Sdk
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-supabase-anon-or-publishable-key
-STARTAPP_APP_ID=your-startio-app-id
+ADMOB_APP_ID=ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY
+ADMOB_BANNER_AD_UNIT_ID=ca-app-pub-XXXXXXXXXXXXXXXX/BBBBBBBBBB
+ADMOB_NATIVE_AD_UNIT_ID=ca-app-pub-XXXXXXXXXXXXXXXX/NNNNNNNNNN
+ADMOB_TEST_DEVICE_IDS=YOUR_HASHED_TEST_DEVICE_ID
 ```
 
-`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `STARTAPP_APP_ID` can be left blank for local builds, but feature requests, active users, updates, and ads will be unavailable or use fallback behavior.
+`SUPABASE_URL` and `SUPABASE_ANON_KEY` can be left blank for local builds. If the AdMob values are omitted, the app uses Google's demo IDs; do not set `ADMOB_APP_ID` to an empty value.
+
+### Connect AdMob
+
+1. In AdMob, add an Android app named `Gamma`. If it is not in a supported store yet, choose **No** when asked whether the app is listed.
+2. Use the package name `com.vtopu.app`.
+3. Create one **Banner** ad unit and one **Native advanced** ad unit.
+4. Copy the AdMob app ID and both ad unit IDs into `local.properties` using the names above.
+5. In **Privacy & messaging**, create the consent message required for the regions where the app is distributed.
+6. Add your physical phone as an AdMob test device before testing production ad unit IDs. Emulators are test devices automatically.
+
+The app intentionally uses Google demo IDs by default. Demo ads never earn revenue. Unpublished apps can be configured and tested, but AdMob limits serving until the app is listed in and linked to a supported store and passes app readiness review.
+
+Current ad mix:
+
+- One native ad at the bottom of the dashboard.
+- One adaptive banner at the bottom of Classes, Tools, and Profile.
+- No ads on login, CAPTCHA, grades, faculty results, calculator results, or the VTOP portal.
+- No interstitial, app-open, or forced rewarded ads.
 
 ## Build
 
@@ -87,4 +108,3 @@ Active users and update metadata are also submitted/read through Supabase. Keep 
 - Saved credentials and session cookies are stored locally on device.
 - Android cannot copy app WebView cookies into Chrome, so logged-in Full VTOP opens inside the app's portal window.
 - CAPTCHA automation is intentionally not included.
-

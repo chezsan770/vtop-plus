@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -104,12 +103,15 @@ class VtopKeepAliveService : Service() {
 
         return NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_gamma_notification)
-            .setLargeIcon(BitmapFactory.decodeResource(resources, R.drawable.ic_launcher))
             .setContentTitle("VTOP session active")
             .setContentText(text)
             .setContentIntent(launchIntent)
             .setOngoing(true)
             .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .addAction(R.drawable.ic_gamma_notification, "Stop", stopIntent)
             .build()
     }
@@ -120,7 +122,7 @@ class VtopKeepAliveService : Service() {
         val channel = NotificationChannel(
             channelId,
             "VTOP Keep Alive",
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_MIN
         ).apply {
             description = "Keeps your VTOP session active in the background"
         }
@@ -129,7 +131,7 @@ class VtopKeepAliveService : Service() {
 
     companion object {
         private const val ACTION_STOP = "com.vtopu.app.STOP_KEEP_ALIVE"
-        private const val channelId = "vtop_keep_alive"
+        private const val channelId = "vtop_keep_alive_minimized"
         private const val notificationId = 77
         private const val keepAliveIntervalMillis = 12L * 60L * 1000L
 

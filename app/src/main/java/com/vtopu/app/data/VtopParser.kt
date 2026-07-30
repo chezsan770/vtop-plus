@@ -69,6 +69,48 @@ object VtopParser {
     fun parseGradeSemesters(html: String): List<SemesterOption> =
         parseSemesterOptions(Jsoup.parse(html), Purpose.Grades)
 
+    fun parseProfileDetails(
+        profileHtml: String,
+        proctorHtml: String = ""
+    ): StudentProfileDetails {
+        val profileDocument = Jsoup.parse(profileHtml)
+        val proctorDocument = Jsoup.parse(proctorHtml)
+        return StudentProfileDetails(
+            personalInformation = parseProfileSection(
+                document = profileDocument,
+                title = "Personal Information"
+            ),
+            proctorInformation = parseProfileSection(
+                document = proctorDocument,
+                title = "Proctor Information",
+                preferredSelector = "#showDetails"
+            ).ifEmpty {
+                parseProfileSection(
+                    document = profileDocument,
+                    title = "Proctor Information"
+                )
+            },
+            hostelInformation = parseProfileSection(
+                document = profileDocument,
+                title = "Hostel Information"
+            ),
+            studentPhotoBase64 = parseEmbeddedImage(profileDocument, "student", "profile"),
+            proctorPhotoBase64 = parseEmbeddedImage(proctorDocument, "proctor", "showDetails")
+        )
+    }
+
+    fun parseStudentPhotoSource(html: String): String? =
+        parseImageSource(Jsoup.parse(html), "student", "profile")
+
+    fun parseProctorPhotoSource(html: String): String? =
+        parseImageSource(Jsoup.parse(html), "proctor", "showDetails")
+
+    fun parseInputValue(html: String, name: String): String? {
+        val document = Jsoup.parse(html)
+        return document.selectFirst("input[name=$name]")?.attr("value")?.takeIf { it.isNotBlank() }
+            ?: document.getElementById(name)?.attr("value")?.takeIf { it.isNotBlank() }
+    }
+
     private fun parseSemesterOptions(document: Document, purpose: Purpose): List<SemesterOption> {
         val exactMatches = document.select("select")
             .filter { select -> select.contextText().matchesPurpose(purpose) }
@@ -136,6 +178,107 @@ object VtopParser {
             name = name?.removePrefix(":")?.cleanText()?.takeIf(::looksLikeStudentName),
             registrationNumber = registrationNumber
         )
+    }
+
+    private fun parseProfileSection(
+        document: Document,
+        title: String,
+        preferredSelector: String? = null
+    ): List<ProfileField> {
+        val preferredContainer = preferredSelector
+            ?.let(document::selectFirst)
+            ?.takeIf { it.select("td, th").isNotEmpty() }
+        val heading = document.select("h1, h2, h3, h4, h5, h6, .panel-heading, .card-header, .accordion-header, a, button")
+            .firstOrNull { element ->
+                element.text().cleanText().equals(title, ignoreCase = true)
+            }
+        val sectionContainer = preferredContainer
+            ?: heading?.closest(".panel, .card, .accordion-item")
+            ?: heading?.parent()?.nextElementSibling()
+            ?: heading?.parent()
+        val fields = sectionContainer
+            ?.let(::parseLabeledFields)
+            .orEmpty()
+        if (fields.isNotEmpty()) return fields
+
+        return document.select("table")
+            .firstOrNull { table ->
+                table.text().contains(title, ignoreCase = true)
+            }
+            ?.let(::parseLabeledFields)
+            .orEmpty()
+    }
+
+    private fun parseLabeledFields(container: Element): List<ProfileField> {
+        val fields = mutableListOf<ProfileField>()
+        container.select("tr").forEach { row ->
+            val cells = row.children()
+                .filter { child -> child.tagName() == "th" || child.tagName() == "td" }
+                .map { cell -> cell.text().cleanText().removeSuffix(":").trim() }
+                .filter { it.isNotBlank() }
+            if (cells.size < 2) return@forEach
+
+            if (cells.size % 2 == 0) {
+                cells.chunked(2).forEach { pair ->
+                    addProfileField(fields, pair[0], pair[1])
+                }
+            } else {
+                addProfileField(fields, cells.first(), cells.drop(1).joinToString(" "))
+            }
+        }
+
+        if (fields.isEmpty()) {
+            val cells = container.select("td, th")
+                .map { cell -> cell.text().cleanText().removeSuffix(":").trim() }
+                .filter { it.isNotBlank() }
+            cells.chunked(2)
+                .filter { pair -> pair.size == 2 }
+                .forEach { pair -> addProfileField(fields, pair[0], pair[1]) }
+        }
+
+        return fields
+            .distinctBy { field -> field.label.normalizedLabel() }
+            .filterNot { field ->
+                field.label.equals(field.value, ignoreCase = true) ||
+                    field.label.contains("information", ignoreCase = true)
+            }
+    }
+
+    private fun addProfileField(
+        fields: MutableList<ProfileField>,
+        label: String,
+        value: String
+    ) {
+        val cleanLabel = label.cleanText().removeSuffix(":").trim()
+        val cleanValue = value.cleanText().removePrefix(":").trim()
+        if (cleanLabel.isBlank() || cleanValue.isBlank()) return
+        if (cleanLabel.length > 80 || cleanValue.length > 300) return
+        fields += ProfileField(label = cleanLabel, value = cleanValue)
+    }
+
+    private fun parseEmbeddedImage(document: Document, vararg hints: String): String? =
+        parseImageSource(document, *hints)
+            ?.substringAfter("base64,", missingDelimiterValue = "")
+            ?.takeIf { it.isNotBlank() }
+
+    private fun parseImageSource(document: Document, vararg hints: String): String? {
+        val images = document.select("img[src]")
+        return images.firstOrNull { image ->
+            val context = listOf(
+                image.id(),
+                image.className(),
+                image.attr("alt"),
+                image.attr("title"),
+                image.parent()?.text().orEmpty()
+            ).joinToString(" ")
+            hints.any { hint -> context.contains(hint, ignoreCase = true) }
+        }?.attr("src")?.takeIf { it.isNotBlank() }
+            ?: images.firstOrNull { image ->
+                val source = image.attr("src")
+                source.startsWith("data:image", ignoreCase = true) ||
+                    source.contains("photo", ignoreCase = true) ||
+                    source.contains("image", ignoreCase = true)
+            }?.attr("src")?.takeIf { it.isNotBlank() }
     }
 
     private fun parseAttendance(document: Document): List<AttendanceCourse> {

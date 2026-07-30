@@ -13,6 +13,24 @@ data class UserProfile(
         get() = if (name.isNullOrBlank()) "Welcome back" else "Welcome back ${name.firstName()}"
 }
 
+data class ProfileField(
+    val label: String,
+    val value: String
+)
+
+data class StudentProfileDetails(
+    val personalInformation: List<ProfileField> = emptyList(),
+    val proctorInformation: List<ProfileField> = emptyList(),
+    val hostelInformation: List<ProfileField> = emptyList(),
+    val studentPhotoBase64: String? = null,
+    val proctorPhotoBase64: String? = null
+) {
+    val isEmpty: Boolean
+        get() = personalInformation.isEmpty() &&
+            proctorInformation.isEmpty() &&
+            hostelInformation.isEmpty()
+}
+
 data class AttendanceCourse(
     val code: String,
     val name: String,
@@ -132,6 +150,7 @@ data class TimetableClass(
 
 data class DashboardSnapshot(
     val profile: UserProfile,
+    val profileDetails: StudentProfileDetails = StudentProfileDetails(),
     val attendance: List<AttendanceCourse>,
     val nextClass: NextClass?,
     val timetable: List<TimetableClass> = emptyList(),

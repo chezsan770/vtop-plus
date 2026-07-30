@@ -1,6 +1,7 @@
 package com.vtopu.app.data
 
 import android.content.Context
+import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -32,6 +33,10 @@ class VtopRepository(context: Context) {
     private var lastMarksHtml: String? = null
     private var lastGradesHtml: String? = null
     private var lastGradeHistoryHtml: String? = null
+    private var lastProfileHtml: String? = null
+    private var lastProctorHtml: String? = null
+    private var lastStudentPhotoBase64: String? = null
+    private var lastProctorPhotoBase64: String? = null
     private var lastResponseUrl: String? = null
     private var authenticatedPortalUrl: String? = null
     private var selectedAttendanceSemesterId: String? = null
@@ -231,6 +236,10 @@ class VtopRepository(context: Context) {
         lastMarksHtml = null
         lastGradesHtml = null
         lastGradeHistoryHtml = null
+        lastProfileHtml = null
+        lastProctorHtml = null
+        lastStudentPhotoBase64 = null
+        lastProctorPhotoBase64 = null
         lastResponseUrl = null
         authenticatedPortalUrl = null
         selectedAttendanceSemesterId = null
@@ -276,6 +285,7 @@ class VtopRepository(context: Context) {
 
     private companion object {
         const val userAgent = "Mozilla/5.0 (Linux; Android 14) VTOP-U/1.0"
+        const val MAX_PROFILE_IMAGE_BYTES = 2L * 1024L * 1024L
     }
 
     private suspend fun fetchAcademicData() = coroutineScope {
@@ -322,11 +332,47 @@ class VtopRepository(context: Context) {
                 )
             }
         }
+        val profileDeferred = async {
+            runCatching {
+                postAjax(
+                    path = "/vtop/studentsRecord/StudentProfileAllView",
+                    fields = menuFields(authorizedId, csrf)
+                )
+            }
+        }
+        val proctorDeferred = async {
+            runCatching {
+                postAjax(
+                    path = "/vtop/proctor/viewProctorDetails",
+                    fields = menuFields(authorizedId, csrf) + mapOf(
+                        "winImage" to VtopParser.parseInputValue(
+                            lastDashboardHtml.orEmpty(),
+                            "winImage"
+                        ).orEmpty()
+                    )
+                )
+            }
+        }
 
         val attendanceMenu = attendanceMenuDeferred.await().getOrNull()
         val timetableMenu = timetableMenuDeferred.await().getOrNull()
         val marksMenu = marksMenuDeferred.await().getOrNull()
         val gradesMenu = gradesMenuDeferred.await().getOrNull()
+        val profileHtml = profileDeferred.await().getOrNull()
+        val proctorHtml = proctorDeferred.await().getOrNull()
+
+        profileHtml?.let { html ->
+            lastProfileHtml = html
+            lastStudentPhotoBase64 = fetchImageBase64(
+                VtopParser.parseStudentPhotoSource(html)
+            ) ?: lastStudentPhotoBase64
+        }
+        proctorHtml?.let { html ->
+            lastProctorHtml = html
+            lastProctorPhotoBase64 = fetchImageBase64(
+                VtopParser.parseProctorPhotoSource(html)
+            ) ?: lastProctorPhotoBase64
+        }
 
         val attendanceOptions = attendanceMenu?.let(VtopParser::parseAttendanceSemesters).orEmpty()
         val timetableOptions = timetableMenu?.let(VtopParser::parseTimetableSemesters).orEmpty()
@@ -454,6 +500,33 @@ class VtopRepository(context: Context) {
             "x" to utcRequestTimestamp()
         )
 
+    private fun fetchImageBase64(source: String?): String? {
+        if (source.isNullOrBlank()) return null
+        if (source.startsWith("data:image", ignoreCase = true)) {
+            return source.substringAfter("base64,", missingDelimiterValue = "")
+                .takeIf { it.isNotBlank() }
+        }
+
+        val imageUrl = when {
+            source.startsWith("https://", ignoreCase = true) ||
+                source.startsWith("http://", ignoreCase = true) -> source
+            source.startsWith("//") -> "https:$source"
+            source.startsWith("/") -> "$baseUrl$source"
+            else -> "$baseUrl/vtop/${source.trimStart('/')}"
+        }
+        val request = Request.Builder()
+            .url(imageUrl)
+            .header("User-Agent", userAgent)
+            .get()
+            .build()
+        return client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            val body = response.body ?: return@use null
+            if (body.contentLength() > MAX_PROFILE_IMAGE_BYTES) return@use null
+            Base64.encodeToString(body.bytes(), Base64.NO_WRAP)
+        }
+    }
+
     private fun attendanceDetailFields(
         authorizedId: String,
         csrf: String,
@@ -511,15 +584,29 @@ class VtopRepository(context: Context) {
         val gradeHistorySnapshot = lastGradeHistoryHtml?.let {
             parseSnapshot(it)
         }
+        val profileSnapshot = lastProfileHtml?.let {
+            parseSnapshot(it)
+        }
+        val profileDetails = VtopParser.parseProfileDetails(
+            profileHtml = lastProfileHtml.orEmpty(),
+            proctorHtml = lastProctorHtml.orEmpty()
+        )
 
         return base.copy(
             profile = mergedProfile(
+                base.profile,
+                profileSnapshot?.profile,
                 gradeHistorySnapshot?.profile,
                 gradesSnapshot?.profile,
                 marksSnapshot?.profile,
                 attendanceSnapshot?.profile,
-                timetableSnapshot?.profile,
-                base.profile
+                timetableSnapshot?.profile
+            ),
+            profileDetails = profileDetails.copy(
+                studentPhotoBase64 = lastStudentPhotoBase64
+                    ?: profileDetails.studentPhotoBase64,
+                proctorPhotoBase64 = lastProctorPhotoBase64
+                    ?: profileDetails.proctorPhotoBase64
             ),
             attendance = attendanceSnapshot?.attendance?.takeIf { it.isNotEmpty() } ?: base.attendance,
             timetable = timetableSnapshot?.timetable?.takeIf { it.isNotEmpty() } ?: base.timetable,
@@ -558,6 +645,7 @@ class VtopRepository(context: Context) {
             selectedTimetableSemesterId = selectedTimetableSemesterId,
             selectedGradeSemesterId = selectedGradeSemesterId
         )
+
 }
 
 private fun mergedProfile(vararg profiles: UserProfile?): UserProfile {

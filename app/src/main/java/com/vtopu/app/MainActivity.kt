@@ -21,6 +21,9 @@ import android.util.Base64
 import android.view.Gravity
 import android.widget.Toast
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Button as AndroidButton
 import android.webkit.CookieManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -30,6 +33,10 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -52,6 +59,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -73,27 +81,58 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Android
+import androidx.compose.material.icons.filled.Api
+import androidx.compose.material.icons.filled.Architecture
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Biotech
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DesignServices
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Grade
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.DonutLarge
+import androidx.compose.material.icons.filled.ElectricBolt
+import androidx.compose.material.icons.filled.EmojiObjects
 import androidx.compose.material.icons.filled.Feedback
+import androidx.compose.material.icons.filled.Functions
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Javascript
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Web
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -122,6 +161,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -130,19 +170,29 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -154,10 +204,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
+import com.google.android.gms.ads.AdLoader
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdSize
+import com.google.android.gms.ads.AdView
+import com.google.android.gms.ads.nativead.NativeAd
+import com.google.android.gms.ads.nativead.NativeAdOptions
+import com.google.android.gms.ads.nativead.NativeAdView
 import com.vtopu.app.data.AttendanceCourse
 import com.vtopu.app.data.AppSettings
 import com.vtopu.app.data.AppUpdate
@@ -177,14 +235,14 @@ import com.vtopu.app.data.LoginChallenge
 import com.vtopu.app.data.LoginEventPayload
 import com.vtopu.app.data.LoginEventRepository
 import com.vtopu.app.data.LoginResult
+import com.vtopu.app.data.ProfileField
 import com.vtopu.app.data.SavedCredentials
 import com.vtopu.app.data.SemesterOption
 import com.vtopu.app.data.SemesterOptions
 import com.vtopu.app.data.SessionKeepAliveResult
+import com.vtopu.app.data.StudentProfileDetails
 import com.vtopu.app.data.TimetableClass
 import com.vtopu.app.data.VtopRepository
-import com.startapp.sdk.ads.banner.Banner
-import com.startapp.sdk.adsbase.StartAppSDK
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -219,6 +277,7 @@ private val DarkCard = Color(0xFF171717)
 private val DarkCardSoft = Color(0xFF222222)
 private val DarkOutline = Color(0xFF303030)
 private val AcademicFont = FontFamily.Serif
+private val LocalLiquidPhase = staticCompositionLocalOf { 0f }
 private const val KEEP_ALIVE_INTERVAL_MILLIS = 12L * 60L * 1000L
 private const val APP_USAGE_HEARTBEAT_INTERVAL_MILLIS = 60L * 1000L
 private const val FEATURE_REQUEST_COOLDOWN_MILLIS = 30L * 1000L
@@ -366,14 +425,33 @@ private data class NextClassCardState(
     val nextClass: NextClassDisplay?
 )
 
+private data class SubjectGradientStyle(
+    val colors: List<Color>,
+    val contentColor: Color,
+    val mutedColor: Color,
+    val accentColor: Color,
+    val chipColor: Color,
+    val chipTextColor: Color,
+    val chipBorderColor: Color,
+    val timePillColor: Color,
+    val trackColor: Color,
+    val borderColor: Color
+)
+
 class MainActivity : FragmentActivity() {
     private var notificationPermissionResult: ((Boolean) -> Unit)? = null
+    private var adsCanLoad by mutableStateOf(false)
+    private var privacyOptionsRequired by mutableStateOf(false)
+    private lateinit var adMobManager: AdMobManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
-            StartAppSDK.setUserConsent(this, "pas", System.currentTimeMillis(), false)
-            StartAppSDK.init(this, BuildConfig.STARTAPP_APP_ID, false)
+        if (BuildConfig.ADMOB_APP_ID.isNotBlank()) {
+            adMobManager = AdMobManager(this)
+            adMobManager.gatherConsent(
+                onPrivacyOptionsChanged = { privacyOptionsRequired = it },
+                onAdsReady = { adsCanLoad = true }
+            )
         }
         setContent {
             val context = LocalContext.current
@@ -395,17 +473,17 @@ class MainActivity : FragmentActivity() {
                     darkMode = darkMode,
                     appearanceTheme = appearanceTheme,
                     accentColor = accentColor,
+                    adsCanLoad = adsCanLoad,
+                    privacyOptionsRequired = privacyOptionsRequired,
+                    onOpenAdPrivacyOptions = {
+                        adMobManager.showPrivacyOptions(
+                            onPrivacyOptionsChanged = { privacyOptionsRequired = it },
+                            onAdsReady = { adsCanLoad = true }
+                        )
+                    },
                     onToggleTheme = {
                         darkMode = !darkMode
                         appSettings.darkModeEnabled = darkMode
-                    },
-                    onAppearanceThemeSelected = { selectedTheme ->
-                        appearanceTheme = selectedTheme
-                        appSettings.appearanceTheme = selectedTheme.storageValue
-                    },
-                    onAccentColorSelected = { selectedAccent ->
-                        accentColor = selectedAccent
-                        appSettings.accentColor = selectedAccent.storageValue
                     }
                 )
             }
@@ -599,7 +677,23 @@ private fun VtopTheme(
         tertiary = accentColor.tertiary(dark)
     )
 
-    MaterialTheme(colorScheme = colors, typography = AcademicTypography, content = content)
+    val liquidTransition = rememberInfiniteTransition(label = "liquid-background")
+    val liquidPhase by liquidTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 12_000, easing = LinearEasing)
+        ),
+        label = "liquid-background-phase"
+    )
+
+    MaterialTheme(colorScheme = colors, typography = AcademicTypography) {
+        CompositionLocalProvider(
+            LocalLiquidPhase provides liquidPhase
+        ) {
+            content()
+        }
+    }
 }
 
 @Composable
@@ -608,9 +702,10 @@ private fun VtopApp(
     darkMode: Boolean,
     appearanceTheme: AppearanceTheme,
     accentColor: AccentColor,
-    onToggleTheme: () -> Unit,
-    onAppearanceThemeSelected: (AppearanceTheme) -> Unit,
-    onAccentColorSelected: (AccentColor) -> Unit
+    adsCanLoad: Boolean,
+    privacyOptionsRequired: Boolean,
+    onOpenAdPrivacyOptions: () -> Unit,
+    onToggleTheme: () -> Unit
 ) {
     var challenge by remember { mutableStateOf<LoginChallenge?>(null) }
     var dashboard by remember { mutableStateOf<DashboardSnapshot?>(null) }
@@ -904,7 +999,7 @@ private fun VtopApp(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
+                .animatedAccentBackground()
                 .padding(top = padding.calculateTopPadding())
                 .windowInsetsPadding(WindowInsets.safeDrawing)
         ) {
@@ -997,6 +1092,7 @@ private fun VtopApp(
                             0 -> DashboardScreen(
                                 dashboard = dashboard!!,
                                 loading = loading,
+                                adsCanLoad = adsCanLoad,
                                 onSemesterSelected = selectSemester,
                                 onRefresh = {
                                     scope.launch {
@@ -1008,9 +1104,10 @@ private fun VtopApp(
                                 }
                             )
                             1 -> ClassesScreen(
-                                dashboard = dashboard!!
+                                dashboard = dashboard!!,
+                                adsCanLoad = adsCanLoad
                             )
-                            2 -> ToolsScreen()
+                            2 -> ToolsScreen(adsCanLoad = adsCanLoad)
                             3 -> GradesScreen(
                                 dashboard = dashboard!!,
                                 isActive = selectedTab == 3 && pagerState.settledPage == 3,
@@ -1019,16 +1116,15 @@ private fun VtopApp(
                             4 -> ProfileSettingsScreen(
                                 dashboard = dashboard!!,
                                 darkMode = darkMode,
-                                appearanceTheme = appearanceTheme,
-                                accentColor = accentColor,
                                 backgroundKeepAliveEnabled = backgroundKeepAliveEnabled,
                                 onToggleTheme = onToggleTheme,
-                                onAppearanceThemeSelected = onAppearanceThemeSelected,
-                                onAccentColorSelected = onAccentColorSelected,
                                 onBackgroundKeepAliveChanged = setBackgroundKeepAlive,
                                 onOpenPortal = openPortalWindow,
                                 onCheckUpdates = checkForUpdates,
                                 onOpenChangelog = openCurrentChangelog,
+                                adsCanLoad = adsCanLoad,
+                                privacyOptionsRequired = privacyOptionsRequired,
+                                onOpenAdPrivacyOptions = onOpenAdPrivacyOptions,
                                 onLogout = logout
                             )
                         }
@@ -1039,11 +1135,15 @@ private fun VtopApp(
             if (loading) {
                 Surface(
                     modifier = Modifier.align(Alignment.Center),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(28.dp),
                     color = MaterialTheme.colorScheme.surface,
                     shadowElevation = 8.dp
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.padding(18.dp))
+                    AppLoadingAnimation(
+                        modifier = Modifier
+                            .padding(18.dp)
+                            .size(82.dp)
+                    )
                 }
             }
 
@@ -1220,27 +1320,6 @@ private fun AcademicBottomBar(
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.13f),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.20f))
                 ) {}
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(1f / 5f)
-                        .offset {
-                            IntOffset(
-                                x = (tabWidth * swipePosition).roundToInt(),
-                                y = 0
-                            )
-                        }
-                        .background(
-                            Brush.horizontalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                                    Color.Transparent
-                                )
-                            ),
-                            shape = RoundedCornerShape(28.dp)
-                        )
-                )
                 Row(
                     modifier = Modifier.fillMaxSize(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1403,11 +1482,7 @@ private fun LandingScreen(onContinue: () -> Unit) {
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(22.dp))
-        CircularProgressIndicator(
-            modifier = Modifier.size(28.dp),
-            strokeWidth = 3.dp,
-            color = MaterialTheme.colorScheme.primary
-        )
+        AppLoadingAnimation(modifier = Modifier.size(58.dp))
     }
 }
 
@@ -1740,6 +1815,7 @@ private fun CaptchaBlock(challenge: LoginChallenge?, onRefresh: () -> Unit) {
 private fun DashboardScreen(
     dashboard: DashboardSnapshot,
     loading: Boolean,
+    adsCanLoad: Boolean,
     onSemesterSelected: (String, String) -> Unit,
     onRefresh: () -> Unit
 ) {
@@ -1780,12 +1856,11 @@ private fun DashboardScreen(
             }
 
             item {
-                AttendanceSection(courses = dashboard.attendance)
+                AttendanceSection(dashboard = dashboard)
             }
-
-            if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+            if (adsCanLoad && BuildConfig.ADMOB_NATIVE_AD_UNIT_ID.isNotBlank()) {
                 item {
-                    StartIoBannerAd()
+                    AdMobNativeCard()
                 }
             }
         }
@@ -1794,7 +1869,8 @@ private fun DashboardScreen(
 
 @Composable
 private fun ClassesScreen(
-    dashboard: DashboardSnapshot
+    dashboard: DashboardSnapshot,
+    adsCanLoad: Boolean
 ) {
     val today = remember { LocalDate.now() }
     var now by remember { mutableStateOf(LocalDateTime.now()) }
@@ -1823,10 +1899,11 @@ private fun ClassesScreen(
             .filter { classSlot -> classSlot.matchesDay(selectedDayKey) }
             .sortedBy { it.time.startTime() }
     }
-    val visibleClasses = if (classesForSelectedDay.isNotEmpty()) {
-        classesForSelectedDay
-    } else {
-        dashboard.timetable.sortedBy { "${it.day.orEmpty()} ${it.time.startTime()} ${it.code.orEmpty()}" }
+    val isWeekend = selectedDate.dayOfWeek == DayOfWeek.SATURDAY || selectedDate.dayOfWeek == DayOfWeek.SUNDAY
+    val visibleClasses = when {
+        isWeekend -> emptyList()
+        classesForSelectedDay.isNotEmpty() -> classesForSelectedDay
+        else -> dashboard.timetable.sortedBy { "${it.day.orEmpty()} ${it.time.startTime()} ${it.code.orEmpty()}" }
     }
     val marksByCode = remember(dashboard.marks) {
         dashboard.marks.associateBy { it.code.uppercase() }
@@ -1860,6 +1937,10 @@ private fun ClassesScreen(
             item {
                 EmptyState("No timetable classes found in the loaded VTOP data.")
             }
+        } else if (isWeekend) {
+            item {
+                EmptyState("No classes on Saturday or Sunday.")
+            }
         } else {
             items(
                 items = visibleClasses,
@@ -1873,9 +1954,9 @@ private fun ClassesScreen(
                 )
             }
         }
-        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+        if (adsCanLoad && BuildConfig.ADMOB_BANNER_AD_UNIT_ID.isNotBlank()) {
             item {
-                StartIoBannerAd()
+                AdMobBannerAd()
             }
         }
     }
@@ -2095,11 +2176,6 @@ private fun CurrentGradesPage(
                 )
             }
         }
-        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
-            item {
-                StartIoBannerAd()
-            }
-        }
     }
 }
 
@@ -2138,11 +2214,6 @@ private fun GradeHistoryPage(
                 item {
                     TermGradeGroup(courses = courses)
                 }
-            }
-        }
-        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
-            item {
-                StartIoBannerAd()
             }
         }
     }
@@ -2344,6 +2415,13 @@ private fun ScheduleClassCard(
     val completed = remember(classSlot.time, selectedDate, now) {
         classSlot.isCompletedOn(selectedDate, now)
     }
+    val gradientStyle = remember(classSlot.name, classSlot.code, classSlot.slot) {
+        classSlot.subjectGradientStyle()
+    }
+    val backgroundIcon = remember(classSlot.name, classSlot.code) {
+        classSlot.subjectBackgroundIcon()
+    }
+    val gradientPhase = LocalLiquidPhase.current
 
     if (showDetails) {
         AlertDialog(
@@ -2367,91 +2445,122 @@ private fun ScheduleClassCard(
         )
     }
 
-    GlassPanel(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { showDetails = true },
-        shape = RoundedCornerShape(10.dp),
-        contentPadding = PaddingValues(14.dp)
+        shape = RoundedCornerShape(24.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, gradientStyle.borderColor),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        Box(
+            modifier = Modifier
+                .background(gradientStyle.animatedBrush((gradientPhase + 0.08f) % 1f))
+                .background(gradientStyle.readabilityOverlay())
+                .fillMaxWidth()
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+            Icon(
+                imageVector = backgroundIcon,
+                contentDescription = null,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(x = 18.dp)
+                    .size(118.dp),
+                tint = Color.White.copy(alpha = 0.14f)
+            )
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Row(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.Top
                 ) {
-                    Surface(
-                        modifier = Modifier.size(28.dp),
-                        shape = RoundedCornerShape(4.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.42f))
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.Top
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.MenuBook,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(15.dp)
+                        Surface(
+                            modifier = Modifier.size(28.dp),
+                            shape = RoundedCornerShape(4.dp),
+                            color = gradientStyle.chipColor,
+                            border = BorderStroke(1.dp, gradientStyle.chipBorderColor)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    backgroundIcon,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = classSlot.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Black,
+                                color = Color.White,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = marks?.title?.ifBlank { null } ?: classSlot.name.ifBlank { "Scheduled class" },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.76f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = classSlot.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Black,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = marks?.title?.ifBlank { null } ?: classSlot.name.ifBlank { "Scheduled class" },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    ClassStatusPill(
+                        text = if (completed) "DONE" else classSlot.statusLabel(),
+                        completed = completed,
+                        containerColor = if (completed) Color.White.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.18f),
+                        contentColor = Color.White,
+                        borderColor = Color.White.copy(alpha = 0.36f)
+                    )
                 }
-                ClassStatusPill(
-                    text = if (completed) "DONE" else classSlot.statusLabel(),
-                    completed = completed
+                Text(
+                    text = classSlot.time,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
                 )
-            }
-            Text(
-                text = classSlot.time,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Black
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                ScheduleMetaText(text = classSlot.venue.ifBlank { "Venue TBA" })
-                ScheduleMetaText(text = classSlot.day.orEmpty().ifBlank { "Check VTOP" })
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    ScheduleMetaText(
+                        text = classSlot.venue.ifBlank { "Class no. TBA" }.let { value ->
+                            if (value == "Class no. TBA") value else "Class $value"
+                        },
+                        color = Color.White.copy(alpha = 0.82f)
+                    )
+                    ScheduleMetaText(text = classSlot.day.orEmpty().ifBlank { "Check VTOP" }, color = Color.White.copy(alpha = 0.82f))
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ClassStatusPill(text: String, completed: Boolean = false) {
-    val containerColor = if (completed) SuccessGreen else MaterialTheme.colorScheme.onBackground
-    val contentColor = if (completed) Color.White else MaterialTheme.colorScheme.background
+private fun ClassStatusPill(
+    text: String,
+    completed: Boolean = false,
+    containerColor: Color = if (completed) SuccessGreen else MaterialTheme.colorScheme.onBackground,
+    contentColor: Color = if (completed) Color.White else MaterialTheme.colorScheme.background,
+    borderColor: Color = if (completed) SuccessGreen.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outline
+) {
     Surface(
         shape = CircleShape,
         color = containerColor,
-        border = BorderStroke(
-            1.dp,
-            if (completed) SuccessGreen.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outline
-        )
+        border = BorderStroke(1.dp, borderColor)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -2478,16 +2587,66 @@ private fun ClassStatusPill(text: String, completed: Boolean = false) {
 }
 
 @Composable
-private fun ScheduleMetaText(text: String) {
+private fun ScheduleMetaText(
+    text: String,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant
+) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = color,
         fontWeight = FontWeight.Bold,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis
     )
 }
+
+private fun TimetableClass.subjectBackgroundIcon(): ImageVector =
+    subjectIconFor(name = name, code = code)
+
+private fun AttendanceCourse.subjectBackgroundIcon(): ImageVector =
+    subjectIconFor(name = name, code = code)
+
+private fun NextClassDisplay.subjectBackgroundIcon(): ImageVector =
+    subjectIconFor(name = name, code = code)
+
+private fun subjectIconFor(name: String, code: String?): ImageVector {
+    val codeText = code.orEmpty().uppercase(Locale.ENGLISH)
+    val nameText = name.uppercase(Locale.ENGLISH)
+    val combined = "$codeText $nameText"
+    val padded = " $combined "
+
+    return when {
+        padded.hasAny(" AI ", " ML ") ||
+            combined.hasAny("ARTIFICIAL INTELLIGENCE", "MACHINE LEARNING", "DEEP LEARNING", "NEURAL", "COMPUTER VISION", "NATURAL LANGUAGE", "DATA SCIENCE") -> Icons.Default.SmartToy
+        combined.hasAny("AWS", "CLOUD", "AZURE", "GCP", "DEVOPS", "DOCKER", "KUBERNETES", "SERVERLESS") -> Icons.Default.CloudQueue
+        combined.hasAny("JAVA", "J2EE", "SPRING", "JVM") -> Icons.Default.Code
+        combined.hasAny("C++", "CPP", "C PLUS", "OBJECT ORIENTED", "OOPS") -> Icons.Default.DataObject
+        combined.hasAny("PYTHON", "SCRIPTING") -> Icons.Default.Terminal
+        combined.hasAny("JAVASCRIPT", "JS ", "WEB", "HTML", "CSS", "REACT", "NODE", "FRONTEND", "FRONT-END") -> Icons.Default.Javascript
+        combined.hasAny("MOBILE", "ANDROID", "APPLICATION DEVELOPMENT", "APP DEVELOPMENT") -> Icons.Default.Android
+        combined.hasAny("DATABASE", "SQL", "DATA BASE", "DBMS", "MONGODB", "POSTGRES", "MYSQL") -> Icons.Default.Storage
+        combined.hasAny("NETWORK", "NETWORKS", "WIRELESS", "ROUTING", "SWITCHING") -> Icons.Default.Router
+        combined.hasAny("IOT", "INTERNET OF THINGS", "SENSOR") -> Icons.Default.Hub
+        combined.hasAny("INTERNET", "DISTRIBUTED", "PARALLEL") -> Icons.Default.Public
+        combined.hasAny("SECURITY", "CYBER", "CRYPTOGRAPHY", "BLOCKCHAIN", "FORENSICS") -> Icons.Default.Security
+        combined.hasAny("API", "BACKEND", "MICROSERVICE", "SERVICE") -> Icons.Default.Api
+        combined.hasAny("PROGRAMMING", "SOFTWARE", "CSE", "CSA", "CODE", "ALGORITHM", "DATA STRUCTURE", "OPERATING SYSTEM") -> Icons.Default.Terminal
+        combined.hasAny("MAT", "MATH", "CALCULUS", "ALGEBRA", "STATISTICS", "PROBABILITY", "LAPLACE", "DISCRETE") -> Icons.Default.Functions
+        combined.hasAny("PHY", "PHYSICS") -> Icons.Default.Science
+        combined.hasAny("CHEM", "CHEMISTRY", "BIO", "BIOTECH") -> Icons.Default.Biotech
+        combined.hasAny("EEE", "ECE", "ELECTRIC", "ELECTRONIC", "CIRCUIT", "SIGNAL", "VLSI") -> Icons.Default.ElectricBolt
+        combined.hasAny("ENG", "COMMUNICATION", "ENGLISH", "LANGUAGE", "LITERACY") -> Icons.Default.Language
+        combined.hasAny("DESIGN", "MODELLING", "MODELING", "CAD", "DRAWING", "ENGINEERING DESIGN") -> Icons.Default.Architecture
+        combined.hasAny("VALUE", "ETHICS", "HUMAN", "LATERAL", "THINKING", "PSYCHOLOGY", "CREATIVE") -> Icons.Default.Psychology
+        combined.hasAny("PROJECT", "CAPSTONE", "RESEARCH", "SEMINAR") -> Icons.Default.AccountTree
+        combined.hasAny("INNOVATION", "ENTREPRENEUR", "STARTUP") -> Icons.Default.AutoAwesome
+        else -> Icons.Default.School
+    }
+}
+
+private fun String.hasAny(vararg needles: String): Boolean =
+    needles.any { contains(it, ignoreCase = true) }
 
 @Composable
 private fun GradeSummaryCard(courseCount: Int, gpa: String?) {
@@ -2947,17 +3106,11 @@ private fun GammaTopBar(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                modifier = Modifier.size(26.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.65f))
-            ) {}
             BrandLogo(
                 modifier = Modifier
                     .width(92.dp)
                     .height(26.dp),
-                color = MaterialTheme.colorScheme.primary
+                color = Color.White
             )
         }
         trailing?.invoke()
@@ -3119,19 +3272,18 @@ private fun SemesterDropdown(
 private fun ProfileSettingsScreen(
     dashboard: DashboardSnapshot,
     darkMode: Boolean,
-    appearanceTheme: AppearanceTheme,
-    accentColor: AccentColor,
     backgroundKeepAliveEnabled: Boolean,
     onToggleTheme: () -> Unit,
-    onAppearanceThemeSelected: (AppearanceTheme) -> Unit,
-    onAccentColorSelected: (AccentColor) -> Unit,
     onBackgroundKeepAliveChanged: (Boolean) -> Unit,
     onOpenPortal: () -> Unit,
     onCheckUpdates: () -> Unit,
     onOpenChangelog: () -> Unit,
+    adsCanLoad: Boolean,
+    privacyOptionsRequired: Boolean,
+    onOpenAdPrivacyOptions: () -> Unit,
     onLogout: () -> Unit
 ) {
-    var selectedSection by remember { mutableStateOf("Settings") }
+    var selectedSection by remember { mutableStateOf("Info") }
     var showFeatureRequestDialog by remember { mutableStateOf(false) }
     var featureRequestMessage by remember { mutableStateOf<String?>(null) }
     var lastFeatureRequestSuccessAt by remember { mutableStateOf(0L) }
@@ -3179,63 +3331,72 @@ private fun ProfileSettingsScreen(
             )
         }
 
-        if (selectedSection == "Settings") {
-            item {
-                AppearanceSettingsCard(
-                    darkMode = darkMode,
-                    selectedTheme = appearanceTheme,
-                    selectedAccent = accentColor,
-                    onToggleTheme = onToggleTheme,
-                    onThemeSelected = onAppearanceThemeSelected,
-                    onAccentSelected = onAccentColorSelected
-                )
+        when (selectedSection) {
+            "Info" -> {
+                item {
+                    ProfileInformationCards(dashboard.profileDetails)
+                }
             }
-            item {
-                ConnectivitySettingsCard(
-                    enabled = backgroundKeepAliveEnabled,
-                    onEnabledChange = onBackgroundKeepAliveChanged
-                )
-            }
-            item {
-                FeatureRequestCard(
-                    configured = featureRequestRepository.isConfigured,
-                    message = featureRequestMessage,
-                    onClick = {
-                        featureRequestMessage = null
-                        showFeatureRequestDialog = true
+            "Settings" -> {
+                item {
+                    AppearanceSettingsCard(
+                        darkMode = darkMode,
+                        onToggleTheme = onToggleTheme
+                    )
+                }
+                if (privacyOptionsRequired) {
+                    item {
+                        AdPrivacySettingsCard(onOpen = onOpenAdPrivacyOptions)
                     }
-                )
+                }
+                item {
+                    ConnectivitySettingsCard(
+                        enabled = backgroundKeepAliveEnabled,
+                        onEnabledChange = onBackgroundKeepAliveChanged
+                    )
+                }
+                item {
+                    FeatureRequestCard(
+                        configured = featureRequestRepository.isConfigured,
+                        message = featureRequestMessage,
+                        onClick = {
+                            featureRequestMessage = null
+                            showFeatureRequestDialog = true
+                        }
+                    )
+                }
+                item {
+                    PortalSettingsCard(onOpenPortal = onOpenPortal)
+                }
+                item {
+                    UpdateSettingsCard(
+                        onCheckUpdates = onCheckUpdates,
+                        onOpenChangelog = onOpenChangelog
+                    )
+                }
+                item {
+                    LogoutSettingsButton(
+                        displayName = displayName,
+                        onLogout = onLogout
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
             }
-            item {
-                PortalSettingsCard(onOpenPortal = onOpenPortal)
-            }
-            item {
-                UpdateSettingsCard(
-                    onCheckUpdates = onCheckUpdates,
-                    onOpenChangelog = onOpenChangelog
-                )
-            }
-            item {
-                LogoutSettingsButton(
-                    displayName = displayName,
-                    onLogout = onLogout
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-            }
-        } else {
-            item {
-                AboutProfileCard(
-                    attendanceCount = dashboard.attendance.size,
-                    gradeCount = dashboard.grades.size,
-                    selectedSemester = dashboard.selectedAttendanceSemester?.label
-                        ?: dashboard.selectedTimetableSemester?.label
-                        ?: "Latest semester"
-                )
+            else -> {
+                item {
+                    AboutProfileCard(
+                        attendanceCount = dashboard.attendance.size,
+                        gradeCount = dashboard.grades.size,
+                        selectedSemester = dashboard.selectedAttendanceSemester?.label
+                            ?: dashboard.selectedTimetableSemester?.label
+                            ?: "Latest semester"
+                    )
+                }
             }
         }
-        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+        if (adsCanLoad && BuildConfig.ADMOB_BANNER_AD_UNIT_ID.isNotBlank()) {
             item {
-                StartIoBannerAd()
+                AdMobBannerAd()
             }
         }
         item {
@@ -3245,7 +3406,7 @@ private fun ProfileSettingsScreen(
 }
 
 @Composable
-private fun ToolsScreen() {
+private fun ToolsScreen(adsCanLoad: Boolean) {
     var selectedTool by rememberSaveable { mutableStateOf<String?>(null) }
 
     BackHandler(enabled = selectedTool != null) {
@@ -3292,9 +3453,9 @@ private fun ToolsScreen() {
                 onClick = { selectedTool = "faculty" }
             )
         }
-        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
+        if (adsCanLoad && BuildConfig.ADMOB_BANNER_AD_UNIT_ID.isNotBlank()) {
             item {
-                StartIoBannerAd()
+                AdMobBannerAd()
             }
         }
     }
@@ -3530,11 +3691,6 @@ private fun FacultyFinderTool(
                 }
             )
         }
-        if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
-            item {
-                StartIoBannerAd()
-            }
-        }
     }
 }
 
@@ -3696,11 +3852,6 @@ private fun CgpaCalculatorTool(
                         CourseGpaCalculatorCard()
                     } else {
                         ProjectedCgpaCalculatorCard()
-                    }
-                }
-                if (BuildConfig.STARTAPP_APP_ID.isNotBlank()) {
-                    item {
-                        StartIoBannerAd()
                     }
                 }
             }
@@ -3962,7 +4113,28 @@ private fun Double.formatCgpa(): String =
     "%.2f".format(Locale.US, this)
 
 @Composable
-private fun StartIoBannerAd() {
+private fun AdMobBannerAd() {
+    val context = LocalContext.current
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val adWidth = (screenWidthDp - 32).coerceAtLeast(320)
+    val adView = remember(context, adWidth, BuildConfig.ADMOB_BANNER_AD_UNIT_ID) {
+        AdView(context).apply {
+            setAdSize(
+                AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
+                    context,
+                    adWidth
+                )
+            )
+            adUnitId = BuildConfig.ADMOB_BANNER_AD_UNIT_ID
+            loadAd(AdRequest.Builder().build())
+        }
+    }
+    DisposableEffect(adView) {
+        onDispose {
+            adView.destroy()
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -3976,11 +4148,11 @@ private fun StartIoBannerAd() {
         AndroidView(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(58.dp),
-            factory = { context ->
-                FrameLayout(context).apply {
+                .height(62.dp),
+            factory = { viewContext ->
+                FrameLayout(viewContext).apply {
                     addView(
-                        Banner(context),
+                        adView,
                         FrameLayout.LayoutParams(
                             FrameLayout.LayoutParams.WRAP_CONTENT,
                             FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -3991,6 +4163,151 @@ private fun StartIoBannerAd() {
             }
         )
     }
+}
+
+@Composable
+private fun AdMobNativeCard() {
+    val context = LocalContext.current
+    var nativeAd by remember { mutableStateOf<NativeAd?>(null) }
+    val surfaceColor = MaterialTheme.colorScheme.surface.toArgb()
+    val primaryColor = MaterialTheme.colorScheme.primary.toArgb()
+    val titleColor = MaterialTheme.colorScheme.onSurface.toArgb()
+    val bodyColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+    val buttonTextColor = MaterialTheme.colorScheme.onPrimary.toArgb()
+
+    DisposableEffect(BuildConfig.ADMOB_NATIVE_AD_UNIT_ID) {
+        val adLoader = AdLoader.Builder(context, BuildConfig.ADMOB_NATIVE_AD_UNIT_ID)
+            .forNativeAd { loadedAd ->
+                nativeAd?.destroy()
+                nativeAd = loadedAd
+            }
+            .withNativeAdOptions(
+                NativeAdOptions.Builder()
+                    .setAdChoicesPlacement(NativeAdOptions.ADCHOICES_TOP_RIGHT)
+                    .build()
+            )
+            .build()
+        adLoader.loadAd(AdRequest.Builder().build())
+
+        onDispose {
+            nativeAd?.destroy()
+            nativeAd = null
+        }
+    }
+
+    nativeAd?.let { ad ->
+        AcademicCard(contentPadding = PaddingValues(12.dp)) {
+            AndroidView(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(132.dp),
+                factory = { viewContext ->
+                    createGammaNativeAdView(viewContext)
+                },
+                update = { adView ->
+                    bindGammaNativeAdView(
+                        adView = adView,
+                        ad = ad,
+                        surfaceColor = surfaceColor,
+                        primaryColor = primaryColor,
+                        titleColor = titleColor,
+                        bodyColor = bodyColor,
+                        buttonTextColor = buttonTextColor
+                    )
+                }
+            )
+        }
+    }
+}
+
+private fun createGammaNativeAdView(context: Context): NativeAdView {
+    val adView = NativeAdView(context)
+    val container = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(8, 4, 8, 4)
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.MATCH_PARENT
+        )
+    }
+    val label = TextView(context).apply {
+        text = "Sponsored"
+        textSize = 11f
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+    val headline = TextView(context).apply {
+        textSize = 17f
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+    val body = TextView(context).apply {
+        textSize = 13f
+        maxLines = 2
+        ellipsize = android.text.TextUtils.TruncateAt.END
+    }
+    val cta = AndroidButton(context).apply {
+        textSize = 12f
+        minHeight = 0
+        minWidth = 0
+        setPadding(18, 4, 18, 4)
+    }
+
+    container.addView(label)
+    container.addView(headline)
+    container.addView(
+        body,
+        LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0,
+            1f
+        )
+    )
+    container.addView(
+        cta,
+        LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.END
+        }
+    )
+
+    adView.headlineView = headline
+    adView.bodyView = body
+    adView.callToActionView = cta
+    adView.addView(container)
+    return adView
+}
+
+private fun bindGammaNativeAdView(
+    adView: NativeAdView,
+    ad: NativeAd,
+    surfaceColor: Int,
+    primaryColor: Int,
+    titleColor: Int,
+    bodyColor: Int,
+    buttonTextColor: Int
+) {
+    adView.setBackgroundColor(surfaceColor)
+    (adView.headlineView as? TextView)?.apply {
+        text = ad.headline
+        setTextColor(titleColor)
+    }
+    (adView.bodyView as? TextView)?.apply {
+        text = ad.body.orEmpty()
+        visibility = if (ad.body.isNullOrBlank()) android.view.View.GONE else android.view.View.VISIBLE
+        setTextColor(bodyColor)
+    }
+    (adView.callToActionView as? AndroidButton)?.apply {
+        text = ad.callToAction ?: "Open"
+        setTextColor(buttonTextColor)
+        setBackgroundColor(primaryColor)
+    }
+    ((adView.getChildAt(0) as? LinearLayout)?.getChildAt(0) as? TextView)?.apply {
+        setTextColor(bodyColor)
+    }
+    adView.setNativeAd(ad)
 }
 
 @Composable
@@ -4057,6 +4374,7 @@ private fun ProfileTabs(
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
         listOf(
+            "Info" to Icons.Default.Person,
             "Settings" to Icons.Default.Settings,
             "About" to Icons.Default.Info
         ).forEach { (label, icon) ->
@@ -4107,13 +4425,133 @@ private fun ProfileTabs(
 }
 
 @Composable
+private fun ProfileInformationCards(details: StudentProfileDetails) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        ProfileInformationCard(
+            title = "Personal information",
+            icon = Icons.Default.Person,
+            fields = details.personalInformation,
+            photoBase64 = details.studentPhotoBase64,
+            emptyMessage = "Personal details are not available from VTOP right now.",
+            initiallyExpanded = true
+        )
+        ProfileInformationCard(
+            title = "Proctor information",
+            icon = Icons.Default.School,
+            fields = details.proctorInformation,
+            photoBase64 = details.proctorPhotoBase64,
+            emptyMessage = "Proctor details are not available from VTOP right now."
+        )
+        ProfileInformationCard(
+            title = "Hostel information",
+            icon = Icons.Default.Home,
+            fields = details.hostelInformation,
+            emptyMessage = "No hostel information is listed for this account."
+        )
+    }
+}
+
+@Composable
+private fun ProfileInformationCard(
+    title: String,
+    icon: ImageVector,
+    fields: List<ProfileField>,
+    emptyMessage: String,
+    photoBase64: String? = null,
+    initiallyExpanded: Boolean = false
+) {
+    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    val photo = remember(photoBase64) { photoBase64?.toBitmap() }
+
+    AcademicCard(contentPadding = PaddingValues(0.dp)) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 18.dp, vertical = 17.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.padding(10.dp).size(21.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Text(
+                    text = title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black
+                )
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = if (expanded) "Collapse $title" else "Expand $title",
+                    modifier = Modifier
+                        .size(28.dp)
+                        .graphicsLayer { rotationZ = if (expanded) 180f else 0f },
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 18.dp, end = 18.dp, bottom = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(13.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.14f))
+                    )
+                    if (photo != null) {
+                        Image(
+                            bitmap = photo.asImageBitmap(),
+                            contentDescription = "$title photo",
+                            modifier = Modifier
+                                .size(92.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .border(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
+                                    shape = RoundedCornerShape(18.dp)
+                                ),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    if (fields.isEmpty()) {
+                        Text(
+                            text = emptyMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        fields.forEach { field ->
+                            DetailRow(label = field.label, value = field.value)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun AppearanceSettingsCard(
     darkMode: Boolean,
-    selectedTheme: AppearanceTheme,
-    selectedAccent: AccentColor,
-    onToggleTheme: () -> Unit,
-    onThemeSelected: (AppearanceTheme) -> Unit,
-    onAccentSelected: (AccentColor) -> Unit
+    onToggleTheme: () -> Unit
 ) {
     AcademicCard(contentPadding = PaddingValues(18.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -4129,40 +4567,43 @@ private fun AppearanceSettingsCard(
                 checked = darkMode,
                 onCheckedChange = { onToggleTheme() }
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                AppearanceTheme.entries.forEach { theme ->
-                    ThemePreviewTile(
-                        title = theme.label,
-                        selected = selectedTheme == theme,
-                        background = theme.previewBackground,
-                        accent = theme.previewAccent,
-                        onClick = { onThemeSelected(theme) }
+        }
+    }
+}
+
+@Composable
+private fun AdPrivacySettingsCard(onOpen: () -> Unit) {
+    AcademicCard(contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpen),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SettingsIconChip(icon = Icons.Default.Security)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Ad Privacy",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        text = "Review or change your advertising privacy choices.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Accent color",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Black
-                )
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(horizontal = 1.dp)
-                ) {
-                    items(
-                        items = AccentColor.entries,
-                        key = { it.storageValue }
-                    ) { accent ->
-                        AccentColorSwatch(
-                            accent = accent,
-                            selected = selectedAccent == accent,
-                            darkMode = darkMode,
-                            onClick = { onAccentSelected(accent) }
-                        )
-                    }
-                }
-            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = "Open ad privacy options"
+            )
         }
     }
 }
@@ -4707,7 +5148,22 @@ private fun LogoutSettingsButton(
 }
 
 @Composable
-private fun AttendanceSection(courses: List<AttendanceCourse>) {
+private fun AttendanceSection(dashboard: DashboardSnapshot) {
+    val courses = dashboard.attendance
+    val today = remember { LocalDate.now() }
+    var now by remember { mutableStateOf(LocalDateTime.now()) }
+    var expandedAttendanceKey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = LocalDateTime.now()
+            delay(30_000)
+        }
+    }
+    LaunchedEffect(courses) {
+        if (expandedAttendanceKey != null && courses.none { it.attendanceExpansionKey() == expandedAttendanceKey }) {
+            expandedAttendanceKey = null
+        }
+    }
     SectionHeader(
         title = "My Attendance",
         trailing = if (courses.isEmpty()) null else "${courses.size} courses",
@@ -4719,13 +5175,32 @@ private fun AttendanceSection(courses: List<AttendanceCourse>) {
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             courses.chunked(2).forEach { rowCourses ->
+                val expandedCourseInRow = rowCourses.firstOrNull {
+                    it.attendanceExpansionKey() == expandedAttendanceKey
+                }
+                var visibleDetailCourse by remember(rowCourses.joinToString("|") { it.attendanceExpansionKey() }) {
+                    mutableStateOf<AttendanceCourse?>(null)
+                }
+                LaunchedEffect(expandedCourseInRow) {
+                    if (expandedCourseInRow != null) {
+                        visibleDetailCourse = expandedCourseInRow
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     rowCourses.forEach { course ->
+                        val courseKey = course.attendanceExpansionKey()
                         AttendanceCourseCard(
                             course = course,
+                            classSlot = dashboard.timetableClassForAttendance(course),
+                            today = today,
+                            now = now,
+                            expanded = expandedAttendanceKey == courseKey,
+                            onToggleDetails = {
+                                expandedAttendanceKey = if (expandedAttendanceKey == courseKey) null else courseKey
+                            },
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -4733,17 +5208,44 @@ private fun AttendanceSection(courses: List<AttendanceCourse>) {
                         Spacer(modifier = Modifier.weight(1f))
                     }
                 }
+                AnimatedVisibility(
+                    visible = expandedCourseInRow != null,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 160)) +
+                        expandVertically(
+                            animationSpec = tween(durationMillis = 240),
+                            expandFrom = Alignment.Top
+                        ),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 140)) +
+                        shrinkVertically(
+                            animationSpec = tween(durationMillis = 220),
+                            shrinkTowards = Alignment.Top
+                        )
+                ) {
+                    (expandedCourseInRow ?: visibleDetailCourse)?.let { expandedCourse ->
+                        AttendanceInlineDetails(
+                            course = expandedCourse,
+                            selectedColumn = rowCourses.indexOf(expandedCourse).coerceAtLeast(0),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
             }
         }
     }
 }
 
+private fun AttendanceCourse.attendanceExpansionKey(): String = "${code.trim()}|${name.trim()}"
+
 @Composable
 private fun AttendanceCourseCard(
     course: AttendanceCourse,
+    classSlot: TimetableClass?,
+    today: LocalDate,
+    now: LocalDateTime,
+    expanded: Boolean,
+    onToggleDetails: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showDetails by remember(course.code) { mutableStateOf(false) }
     var animateIn by remember(course.code, course.percentage) { mutableStateOf(false) }
     LaunchedEffect(course.code, course.percentage) {
         animateIn = false
@@ -4755,64 +5257,269 @@ private fun AttendanceCourseCard(
         animationSpec = tween(durationMillis = 900),
         label = "attendance-progress"
     )
-
-    if (showDetails) {
-        AttendanceDetailDialog(
-            course = course,
-            onDismiss = { showDetails = false }
-        )
+    val gradientStyle = remember(course.name, course.code) {
+        course.subjectGradientStyle()
     }
+    val backgroundIcon = remember(course.name, course.code) {
+        course.subjectBackgroundIcon()
+    }
+    val gradientPhase = LocalLiquidPhase.current
+    val classTodayState = remember(classSlot, today, now) {
+        classSlot?.todayAttendanceStatus(today, now) ?: "Not in timetable"
+    }
+    val timeText = classSlot?.time.orEmpty().ifBlank { "Timing not found" }
+    val classNumber = classSlot?.venue.orEmpty()
 
-    GlassPanel(
+    Surface(
         modifier = modifier
-            .height(168.dp)
-            .clickable { showDetails = true },
-        shape = RoundedCornerShape(28.dp),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
-        baseTint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f),
-        borderTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)
+            .height(188.dp)
+            .clickable(onClick = onToggleDetails),
+        shape = RoundedCornerShape(24.dp),
+        color = Color.Transparent,
+        border = BorderStroke(
+            width = if (expanded) 1.5.dp else 1.dp,
+            color = if (expanded) Color.White.copy(alpha = 0.72f) else gradientStyle.borderColor
+        ),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(7.dp)
+        Box(
+            modifier = Modifier
+                .background(gradientStyle.animatedBrush((gradientPhase + 0.16f) % 1f))
+                .background(gradientStyle.readabilityOverlay())
+                .fillMaxWidth()
         ) {
-            val progressColor = if (course.percentage >= 75) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-            Box(modifier = Modifier.size(62.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    progress = { animatedProgress },
-                    modifier = Modifier.fillMaxSize(),
-                    strokeWidth = 10.dp,
-                    color = progressColor.copy(alpha = 0.20f),
-                    trackColor = Color.Transparent
-                )
-                CircularProgressIndicator(
-                    progress = { animatedProgress },
-                    modifier = Modifier.fillMaxSize(),
-                    strokeWidth = 5.dp,
-                    color = progressColor,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                )
+            Icon(
+                imageVector = backgroundIcon,
+                contentDescription = null,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(x = 18.dp)
+                    .size(94.dp),
+                tint = Color.White.copy(alpha = 0.11f)
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
                 Text(
-                    "${course.percentage}%",
+                    text = course.name.ifBlank { "Attendance course" },
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Black,
-                    style = MaterialTheme.typography.titleMedium
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GradientStatusChip(
+                        text = course.code.ifBlank { "VTOP" },
+                        containerColor = gradientStyle.chipColor,
+                        contentColor = gradientStyle.chipTextColor,
+                        borderColor = gradientStyle.chipBorderColor
+                    )
+                    AttendanceMetaChip(
+                        icon = Icons.Default.CalendarToday,
+                        text = timeText,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AttendanceMetaChip(
+                        icon = Icons.Default.CheckCircle,
+                        text = classTodayState,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (classNumber.isNotBlank()) {
+                        AttendanceMetaChip(
+                            icon = Icons.Default.LocationOn,
+                            text = "Class $classNumber",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Attendance",
+                        color = Color.White.copy(alpha = 0.74f),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        text = "${course.percentage}%",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+                LinearProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp),
+                    color = Color.White,
+                    trackColor = Color.White.copy(alpha = 0.24f)
                 )
             }
-            Text(
-                text = course.name,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Black
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            StatusChip(text = course.code)
         }
+    }
+}
+
+@Composable
+private fun AttendanceInlineDetails(
+    course: AttendanceCourse,
+    selectedColumn: Int,
+    modifier: Modifier = Modifier
+) {
+    val gradientStyle = remember(course.name, course.code) {
+        course.subjectGradientStyle()
+    }
+    val gradientPhase = LocalLiquidPhase.current
+    val detailBorderBrush = gradientStyle.animatedBrush((gradientPhase + 0.16f) % 1f)
+    val recordListFlingGuard = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset = available
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
+        }
+    }
+    Column(modifier = modifier) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            repeat(2) { column ->
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (column == selectedColumn.coerceIn(0, 1)) {
+                        Box(
+                            modifier = Modifier
+                                .width(44.dp)
+                                .height(12.dp)
+                                .background(
+                                    brush = detailBorderBrush,
+                                    shape = RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)
+                                )
+                        )
+                    }
+                }
+            }
+        }
+        GlassPanel(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            contentPadding = PaddingValues(10.dp),
+            baseTint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f),
+            borderTint = gradientStyle.borderColor,
+            borderBrush = detailBorderBrush
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = "Daily details",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Black,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = course.name.ifBlank { "Selected course" },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (course.code.isNotBlank()) {
+                        GradientStatusChip(
+                            text = course.code,
+                            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                        )
+                    }
+                }
+                if (course.records.isEmpty()) {
+                    Text(
+                        text = "Refresh once after opening attendance in VTOP.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 360.dp)
+                            .nestedScroll(recordListFlingGuard),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(
+                            items = course.records,
+                            key = { "${it.date}-${it.slot}-${it.dayTime}-${it.status}" }
+                        ) { record ->
+                            AttendanceRecordRow(record = record)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttendanceMetaChip(
+    icon: ImageVector,
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = Color.White.copy(alpha = 0.82f)
+        )
+        Text(
+            text = text,
+            color = Color.White.copy(alpha = 0.82f),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -4826,6 +5533,13 @@ private fun NextClassCard(dashboard: DashboardSnapshot) {
     val activeClass = cardState.activeClass
     val nextClass = cardState.nextClass
     val facultyDisplayName = nextClass?.faculty?.toDisplayNameCase().orEmpty()
+    val gradientStyle = remember(nextClass?.name, nextClass?.code) {
+        nextClass?.subjectGradientStyle()
+    }
+    val backgroundIcon = remember(nextClass?.name, nextClass?.code) {
+        nextClass?.subjectBackgroundIcon() ?: Icons.Default.School
+    }
+    val gradientPhase = LocalLiquidPhase.current
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -4858,73 +5572,128 @@ private fun NextClassCard(dashboard: DashboardSnapshot) {
         )
     }
 
-    GlassPanel(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = nextClass != null) { showDetails = true }
-            .animateContentSize(),
-        shape = RoundedCornerShape(24.dp),
-        contentPadding = PaddingValues(0.dp)
-    ) {
-        if (nextClass == null) {
+    if (nextClass == null || gradientStyle == null) {
+        GlassPanel(
+            modifier = Modifier
+                .fillMaxWidth()
+                .animateContentSize(),
+            shape = RoundedCornerShape(24.dp),
+            contentPadding = PaddingValues(0.dp)
+        ) {
             EmptyState("No upcoming class found on the loaded page.")
-        } else {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+        }
+    } else {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showDetails = true }
+                .animateContentSize(),
+            shape = RoundedCornerShape(28.dp),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, gradientStyle.borderColor),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(gradientStyle.animatedBrush(gradientPhase))
+                    .background(gradientStyle.readabilityOverlay())
+                    .fillMaxWidth()
             ) {
-                if (activeClass != null && activeClass != nextClass) {
-                    ActiveClassStrip(activeClass = activeClass)
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top
+                Icon(
+                    imageVector = backgroundIcon,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .offset(x = 22.dp)
+                        .size(138.dp),
+                    tint = Color.White.copy(alpha = 0.13f)
+                )
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(11.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusChip(text = nextClass.code ?: nextClass.slot ?: "VTOP")
-                        Text(
-                            text = nextClass.name,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Black,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                    if (activeClass != null && activeClass != nextClass) {
+                        ActiveClassStrip(
+                            activeClass = activeClass,
+                            contentColor = gradientStyle.contentColor,
+                            mutedColor = gradientStyle.mutedColor,
+                            accentColor = gradientStyle.accentColor,
+                            chipColor = gradientStyle.chipColor,
+                            chipTextColor = gradientStyle.chipTextColor,
+                            chipBorderColor = gradientStyle.chipBorderColor
                         )
                     }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            GradientStatusChip(
+                                text = nextClass.code ?: nextClass.slot ?: "VTOP",
+                                containerColor = gradientStyle.chipColor,
+                                contentColor = gradientStyle.chipTextColor,
+                                borderColor = gradientStyle.chipBorderColor
+                            )
+                            Text(
+                                text = nextClass.name,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Black,
+                                color = gradientStyle.contentColor,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = gradientStyle.timePillColor,
+                                border = BorderStroke(1.dp, gradientStyle.chipBorderColor)
                             ) {
-                                Text(nextClass.statusLabel, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                Text(nextClass.timeLabel, fontWeight = FontWeight.Black)
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        nextClass.statusLabel,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = gradientStyle.mutedColor
+                                    )
+                                    Text(
+                                        nextClass.timeLabel,
+                                        fontWeight = FontWeight.Black,
+                                        color = gradientStyle.contentColor
+                                    )
+                                }
                             }
                         }
                     }
-                }
-                Text(
-                    text = "${nextClass.statusLabel} - ${nextClass.countdownLabel}",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Black
-                )
-                if (activeClass == null || activeClass == nextClass) {
-                    LinearProgressIndicator(
-                        progress = { nextClass.progress },
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    Text(
+                        text = "${nextClass.statusLabel} - ${nextClass.countdownLabel}",
+                        color = gradientStyle.accentColor,
+                        fontWeight = FontWeight.Black
+                    )
+                    if (activeClass == null || activeClass == nextClass) {
+                        LinearProgressIndicator(
+                            progress = { nextClass.progress },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = gradientStyle.accentColor,
+                            trackColor = gradientStyle.trackColor
+                        )
+                    }
+                    NextClassInfoGrid(
+                        venue = nextClass.venue,
+                        faculty = facultyDisplayName.ifBlank { "Check VTOP" },
+                        day = nextClass.day,
+                        contentColor = gradientStyle.contentColor,
+                        mutedColor = gradientStyle.mutedColor,
+                        accentColor = gradientStyle.accentColor,
+                        chipColor = gradientStyle.chipColor,
+                        chipBorderColor = gradientStyle.chipBorderColor
                     )
                 }
-                NextClassInfoGrid(
-                    venue = nextClass.venue,
-                    faculty = facultyDisplayName.ifBlank { "Check VTOP" },
-                    day = nextClass.day
-                )
             }
         }
     }
@@ -5005,8 +5774,8 @@ private fun AttendanceDetailDialog(
 private fun AttendanceRecordRow(record: AttendanceRecord) {
     GlassPanel(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        shape = RoundedCornerShape(14.dp),
+        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 8.dp),
         baseTint = MaterialTheme.colorScheme.surfaceVariant
     ) {
         Row(
@@ -5017,14 +5786,20 @@ private fun AttendanceRecordRow(record: AttendanceRecord) {
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(end = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
+                    .padding(end = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Text(record.date, fontWeight = FontWeight.Black)
+                Text(
+                    text = record.date,
+                    fontWeight = FontWeight.Black,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
                 Text(
                     listOf(record.dayTime, record.slot).filter { it.isNotBlank() }.joinToString(" • "),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -5050,7 +5825,7 @@ private fun AttendanceStatusChip(status: String) {
     ) {
         Text(
             text = status.ifBlank { "--" },
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
             color = color,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Black,
@@ -5060,7 +5835,15 @@ private fun AttendanceStatusChip(status: String) {
 }
 
 @Composable
-private fun ActiveClassStrip(activeClass: NextClassDisplay) {
+private fun ActiveClassStrip(
+    activeClass: NextClassDisplay,
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    mutedColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    accentColor: Color = MaterialTheme.colorScheme.primary,
+    chipColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+    chipTextColor: Color = MaterialTheme.colorScheme.primary,
+    chipBorderColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(7.dp)
@@ -5077,18 +5860,24 @@ private fun ActiveClassStrip(activeClass: NextClassDisplay) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                StatusChip(text = activeClass.code ?: activeClass.slot ?: "LIVE")
+                GradientStatusChip(
+                    text = activeClass.code ?: activeClass.slot ?: "LIVE",
+                    containerColor = chipColor,
+                    contentColor = chipTextColor,
+                    borderColor = chipBorderColor
+                )
                 Text(
                     text = activeClass.name,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Black,
+                    color = contentColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
             Text(
                 text = activeClass.countdownLabel,
-                color = MaterialTheme.colorScheme.primary,
+                color = mutedColor,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Black,
                 maxLines = 1
@@ -5097,8 +5886,8 @@ private fun ActiveClassStrip(activeClass: NextClassDisplay) {
         LinearProgressIndicator(
             progress = { activeClass.progress },
             modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.primary,
-            trackColor = MaterialTheme.colorScheme.surfaceVariant
+            color = accentColor,
+            trackColor = chipColor
         )
     }
 }
@@ -5107,7 +5896,12 @@ private fun ActiveClassStrip(activeClass: NextClassDisplay) {
 private fun NextClassInfoGrid(
     venue: String,
     faculty: String,
-    day: String?
+    day: String?,
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    mutedColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    accentColor: Color = MaterialTheme.colorScheme.primary,
+    chipColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+    chipBorderColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -5119,7 +5913,12 @@ private fun NextClassInfoGrid(
                 icon = Icons.Default.LocationOn,
                 label = "Venue",
                 value = venue,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                contentColor = contentColor,
+                mutedColor = mutedColor,
+                accentColor = accentColor,
+                chipColor = chipColor,
+                chipBorderColor = chipBorderColor
             )
             NextClassMetaRow(
                 icon = Icons.Default.School,
@@ -5128,7 +5927,12 @@ private fun NextClassInfoGrid(
                 modifier = Modifier.weight(1f),
                 horizontalAlignment = Alignment.End,
                 textAlign = TextAlign.End,
-                trailingIcon = true
+                trailingIcon = true,
+                contentColor = contentColor,
+                mutedColor = mutedColor,
+                accentColor = accentColor,
+                chipColor = chipColor,
+                chipBorderColor = chipBorderColor
             )
         }
         day?.takeIf { it.isNotBlank() }?.let { classDay ->
@@ -5136,7 +5940,12 @@ private fun NextClassInfoGrid(
                 icon = Icons.Default.CalendarToday,
                 label = "Day",
                 value = classDay,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                contentColor = contentColor,
+                mutedColor = mutedColor,
+                accentColor = accentColor,
+                chipColor = chipColor,
+                chipBorderColor = chipBorderColor
             )
         }
     }
@@ -5150,21 +5959,26 @@ private fun NextClassMetaRow(
     modifier: Modifier = Modifier,
     horizontalAlignment: Alignment.Horizontal = Alignment.Start,
     textAlign: TextAlign = TextAlign.Start,
-    trailingIcon: Boolean = false
+    trailingIcon: Boolean = false,
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    mutedColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    accentColor: Color = MaterialTheme.colorScheme.primary,
+    chipColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+    chipBorderColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
 ) {
     val iconContent: @Composable () -> Unit = {
         Surface(
             modifier = Modifier.size(30.dp),
             shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f))
+            color = chipColor,
+            border = BorderStroke(1.dp, chipBorderColor)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = accentColor
                 )
             }
         }
@@ -5178,7 +5992,7 @@ private fun NextClassMetaRow(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = mutedColor,
                 fontWeight = FontWeight.Bold,
                 textAlign = textAlign
             )
@@ -5186,6 +6000,7 @@ private fun NextClassMetaRow(
                 text = value.ifBlank { "Check VTOP" },
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
+                color = contentColor,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = textAlign
@@ -5206,6 +6021,87 @@ private fun NextClassMetaRow(
         }
     }
 }
+
+private fun NextClassDisplay.subjectGradientStyle(): SubjectGradientStyle =
+    subjectGradientStyleFor(
+        name = name,
+        code = code,
+        slot = slot
+    )
+
+private fun AttendanceCourse.subjectGradientStyle(): SubjectGradientStyle =
+    subjectGradientStyleFor(
+        name = name,
+        code = code,
+        slot = null
+    )
+
+private fun TimetableClass.subjectGradientStyle(): SubjectGradientStyle =
+    subjectGradientStyleFor(
+        name = name,
+        code = code,
+        slot = slot
+    )
+
+private fun subjectGradientStyleFor(
+    name: String,
+    code: String?,
+    slot: String?
+): SubjectGradientStyle {
+    val palettes = listOf(
+        listOf(Color(0xFF25E5E6), Color(0xFF1EA2FF), Color(0xFF214BFF)),
+        listOf(Color(0xFF20CFFF), Color(0xFF3F8BFF), Color(0xFF9135FF)),
+        listOf(Color(0xFFFFF06C), Color(0xFFFFC65B), Color(0xFFFF8540)),
+        listOf(Color(0xFFFFB236), Color(0xFFFF7D39), Color(0xFFFF433C)),
+        listOf(Color(0xFFFF6651), Color(0xFFFF343B), Color(0xFFDA0B2C)),
+        listOf(Color(0xFFFF00D6), Color(0xFFC218FF), Color(0xFF7B20FF)),
+        listOf(Color(0xFFF52E49), Color(0xFF9A58E9), Color(0xFF5D6BFF)),
+        listOf(Color(0xFF9C35FF), Color(0xFF6939FF), Color(0xFF262FFF)),
+        listOf(Color(0xFF28D7FF), Color(0xFF4A68FF), Color(0xFF8B32FF)),
+        listOf(Color(0xFFFF8A3D), Color(0xFFFF4B4B), Color(0xFFB9002F))
+    )
+    val seed = "${code.orEmpty()}|$name|${slot.orEmpty()}".hashCode() and Int.MAX_VALUE
+    val colors = palettes[seed % palettes.size]
+    val contentColor = Color.White
+    val mutedColor = Color.White.copy(alpha = 0.76f)
+    val accentColor = Color.White.copy(alpha = 0.96f)
+    val chipColor = Color.White.copy(alpha = 0.18f)
+    val chipTextColor = Color.White
+    val borderColor = Color.White.copy(alpha = 0.32f)
+
+    return SubjectGradientStyle(
+        colors = colors,
+        contentColor = contentColor,
+        mutedColor = mutedColor,
+        accentColor = accentColor,
+        chipColor = chipColor,
+        chipTextColor = chipTextColor,
+        chipBorderColor = borderColor,
+        timePillColor = Color.Black.copy(alpha = 0.16f),
+        trackColor = Color.White.copy(alpha = 0.24f),
+        borderColor = Color.White.copy(alpha = 0.30f)
+    )
+}
+
+private fun SubjectGradientStyle.animatedBrush(phase: Float): Brush {
+    val sweep = phase * 2f * Math.PI.toFloat()
+    val driftX = kotlin.math.sin(sweep) * 220f
+    val driftY = kotlin.math.cos(sweep * 0.74f) * 140f
+    return Brush.linearGradient(
+        colors = colors,
+        start = Offset(-120f + driftX, -80f + driftY),
+        end = Offset(720f + driftX * 0.45f, 460f - driftY * 0.35f)
+    )
+}
+
+private fun SubjectGradientStyle.readabilityOverlay(): Brush =
+    Brush.verticalGradient(
+        colors = listOf(
+            Color.Black.copy(alpha = 0.18f),
+            Color.Black.copy(alpha = 0.08f),
+            Color.Black.copy(alpha = 0.26f)
+        )
+    )
 
 @Composable
 private fun SectionHeader(
@@ -5280,6 +6176,72 @@ private fun StatusChip(text: String) {
 }
 
 @Composable
+private fun GradientStatusChip(
+    text: String,
+    containerColor: Color,
+    contentColor: Color,
+    borderColor: Color
+) {
+    Surface(
+        shape = CircleShape,
+        color = containerColor,
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            color = contentColor,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun AppLoadingAnimation(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val frames = remember(context) {
+        (1..50).mapNotNull { frame ->
+            val resourceId = context.resources.getIdentifier(
+                "gamma_loading_${frame.toString().padStart(3, '0')}",
+                "drawable",
+                context.packageName
+            )
+            if (resourceId == 0) {
+                null
+            } else {
+                BitmapFactory.decodeResource(context.resources, resourceId)?.asImageBitmap()
+            }
+        }
+    }
+    var frameIndex by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(frames.size) {
+        if (frames.isEmpty()) return@LaunchedEffect
+        while (true) {
+            delay(33L)
+            frameIndex = (frameIndex + 1) % frames.size
+        }
+    }
+
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        frames.getOrNull(frameIndex)?.let { frame ->
+            Image(
+                bitmap = frame,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+        }
+    }
+}
+
+@Composable
 private fun AcademicCard(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(24.dp),
@@ -5301,29 +6263,118 @@ private fun GlassPanel(
     contentPadding: PaddingValues = PaddingValues(16.dp),
     baseTint: Color = MaterialTheme.colorScheme.surface,
     borderTint: Color = MaterialTheme.colorScheme.primary,
+    borderBrush: Brush? = null,
     content: @Composable () -> Unit
 ) {
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val containerColor = baseTint.blendForFlatSurface(MaterialTheme.colorScheme.surface, isDark)
+    val glassAlpha = if (isDark) 0.46f else 0.58f
+    val containerColor = baseTint.copy(
+        alpha = (baseTint.alpha * glassAlpha).coerceIn(if (isDark) 0.18f else 0.26f, if (isDark) 0.56f else 0.68f)
+    )
     val outlineColor = if (borderTint == MaterialTheme.colorScheme.primary) {
         MaterialTheme.colorScheme.outline
     } else {
         borderTint
     }
-    Surface(
-        modifier = modifier,
-        shape = shape,
-        color = containerColor,
-        border = BorderStroke(1.dp, outlineColor.copy(alpha = if (isDark) 0.72f else 0.88f)),
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
-    ) {
-        Box(
-            modifier = Modifier.padding(contentPadding)
+    Box(modifier = modifier) {
+        if (borderBrush != null) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(shape)
+                    .background(borderBrush)
+            )
+        }
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(if (borderBrush != null) 1.5.dp else 0.dp),
+            shape = shape,
+            color = containerColor,
+            border = if (borderBrush == null) {
+                BorderStroke(1.dp, outlineColor.copy(alpha = if (isDark) 0.50f else 0.62f))
+            } else {
+                null
+            },
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp
         ) {
-            content()
+        Box(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .blur(16.dp)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.20f else 0.12f),
+                                MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.10f else 0.06f),
+                                Color.Transparent
+                            ),
+                            center = Offset(180f, 90f),
+                            radius = 520f
+                        )
+                    )
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.055f else 0.075f)
+                    )
+            )
+            Box(
+                modifier = Modifier
+                    .padding(contentPadding)
+            ) {
+                content()
+            }
         }
     }
+    }
+}
+
+@Composable
+private fun Modifier.animatedAccentBackground(): Modifier {
+    val phase = LocalLiquidPhase.current
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val background = MaterialTheme.colorScheme.background
+    val isDark = background.luminance() < 0.5f
+
+    return this
+        .background(background)
+        .drawBehind {
+            val width = size.width
+            val height = size.height
+            val alphaScale = if (isDark) 1f else 0.46f
+
+            repeat(7) { index ->
+                val lane = index / 6f
+                val travel = ((phase + index * 0.17f) % 1f)
+                val x = width * (travel * 1.45f - 0.25f)
+                val y = height * (0.10f + lane * 0.78f)
+                val lineAlpha = (0.20f - index * 0.012f).coerceAtLeast(0.08f) * alphaScale
+                drawLine(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            primary.copy(alpha = lineAlpha),
+                            secondary.copy(alpha = lineAlpha * 0.55f),
+                            Color.Transparent
+                        ),
+                        start = Offset(x - width * 0.34f, y - 120f),
+                        end = Offset(x + width * 0.34f, y + 120f)
+                    ),
+                    start = Offset(x - width * 0.42f, y - 150f),
+                    end = Offset(x + width * 0.42f, y + 150f),
+                    strokeWidth = 8f + index * 1.15f,
+                    cap = StrokeCap.Round
+                    )
+            }
+        }
 }
 
 private fun Color.blendForFlatSurface(fallback: Color, isDark: Boolean): Color {
@@ -5444,6 +6495,31 @@ private fun DashboardSnapshot.resolveNextClassCardState(now: LocalDateTime): Nex
     )
 }
 
+private fun DashboardSnapshot.timetableClassForAttendance(course: AttendanceCourse): TimetableClass? {
+    val courseCode = course.code.trim()
+    val normalizedCourseName = course.name.normalizedCourseKey()
+    return timetable.firstOrNull { classSlot ->
+        !classSlot.code.isNullOrBlank() && classSlot.code.equals(courseCode, ignoreCase = true)
+    } ?: timetable.firstOrNull { classSlot ->
+        val normalizedClassName = classSlot.name.normalizedCourseKey()
+        normalizedCourseName.isNotBlank() && normalizedClassName.isNotBlank() && (
+            normalizedClassName.contains(normalizedCourseName) ||
+                normalizedCourseName.contains(normalizedClassName)
+            )
+    }
+}
+
+private fun TimetableClass.todayAttendanceStatus(today: LocalDate, now: LocalDateTime): String {
+    if (!matchesDay(today.dayOfWeek.getDisplayName(DateTextStyle.SHORT, Locale.ENGLISH).uppercase(Locale.ENGLISH))) {
+        return "Not today"
+    }
+    return if (isCompletedOn(today, now)) {
+        "Occurred today"
+    } else {
+        "Scheduled today"
+    }
+}
+
 private fun TimetableClass.timelineEntriesFrom(now: LocalDateTime): List<ClassTimelineEntry> {
     val dayOfWeek = day.toDayOfWeek() ?: return emptyList()
     val (startTime, endTime) = time.toTimeRange() ?: return emptyList()
@@ -5460,6 +6536,13 @@ private fun TimetableClass.timelineEntriesFrom(now: LocalDateTime): List<ClassTi
         )
     }
 }
+
+private fun String.normalizedCourseKey(): String =
+    uppercase(Locale.ENGLISH)
+        .replace(Regex("[^A-Z0-9]+"), " ")
+        .replace(Regex("\\b(LECTURE|PRACTICAL|HOURS|ONLY|AND|THE|OF)\\b"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
 
 private fun ClassTimelineEntry.toDisplay(
     dashboard: DashboardSnapshot,
